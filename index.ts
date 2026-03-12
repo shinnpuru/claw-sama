@@ -9,8 +9,23 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdi
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { textToSpeech } from "../../src/tts/tts.js";
-import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../src/agents/agent-scope.js";
+import { EdgeTTS } from "node-edge-tts";
+import { tmpdir } from "node:os";
+
+// ---------------------------------------------------------------------------
+// Inline Edge TTS — replaces openclaw internal textToSpeech import
+// ---------------------------------------------------------------------------
+async function edgeTts(opts: { text: string; voice?: string }): Promise<{ success: boolean; audioPath?: string; error?: string }> {
+  try {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "claw-tts-"));
+    const audioPath = path.join(tempDir, `voice-${Date.now()}.mp3`);
+    const tts = new EdgeTTS({ voice: opts.voice || "zh-CN-XiaoxiaoNeural" });
+    await tts.ttsPromise(opts.text, audioPath);
+    return { success: true, audioPath };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
 
 const VALID_EMOTIONS = [
   "happy", "sad", "angry", "surprised", "think", "awkward", "question", "curious", "neutral",
@@ -221,17 +236,7 @@ function updatePrefs(patch: Partial<ClasSamaPrefs>): ClasSamaPrefs {
 // Runtime cache (loaded once at startup, kept in sync on writes)
 let prefs = loadPrefs();
 
-function buildOverriddenConfig(baseConfig: any): any {
-  if (!prefs.voice && !prefs.provider) return baseConfig;
-  const cfg = JSON.parse(JSON.stringify(baseConfig));
-  const tts = ((cfg as any).messages ??= {}).tts ??= {};
-  if (prefs.provider) tts.provider = prefs.provider;
-  if (prefs.voice) {
-    const edge = tts.edge ??= {};
-    edge.voice = prefs.voice;
-  }
-  return cfg;
-}
+
 
 // ---------------------------------------------------------------------------
 // Qwen TTS (DashScope HTTP API, non-streaming)
@@ -339,7 +344,7 @@ const plugin = {
       // Filter out thinking messages (start with "think") and heartbeat
       const filtered = assistantTexts.filter((t) => {
         const trimmed = t.trim();
-        return trimmed && !trimmed.toLowerCase().startsWith("think") && trimmed !== "HEARTBEAT_OK";
+        return trimmed && !trimmed.toLowerCase().startsWith("think") && !trimmed.toLowerCase().startsWith("flex") && trimmed !== "HEARTBEAT_OK";
       });
       const raw = filtered.join("\n");
       if (!raw) return;
@@ -375,8 +380,7 @@ const plugin = {
                 api.logger.warn("claw-sama TTS failed: " + result.error);
               }
             } else {
-              const cfg = buildOverriddenConfig(api.config);
-              const result = await textToSpeech({ text: ttsText, cfg });
+              const result = await edgeTts({ text: ttsText, voice: prefs.voice });
               if (result.success && result.audioPath) {
                 const audioId = registerAudioFile(result.audioPath);
                 payload.audioUrl = `${GATEWAY_URL}/plugins/claw-sama/audio/${audioId}`;
@@ -495,14 +499,13 @@ const plugin = {
           return;
         }
         if (req.method === "GET") {
-          const ttsConfig = (await import("../../src/tts/tts.js")).resolveTtsConfig(api.config);
           res.writeHead(200, {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
           });
           res.end(JSON.stringify({
-            voice: prefs.voice ?? ttsConfig.edge.voice,
-            provider: prefs.provider ?? ttsConfig.provider,
+            voice: prefs.voice ?? "zh-CN-XiaoxiaoNeural",
+            provider: prefs.provider ?? "edge",
             qwenKey: prefs.qwenKey ?? "",
             qwenModel: prefs.qwenModel ?? "qwen3-tts-flash",
           }));
@@ -579,14 +582,7 @@ const plugin = {
               res.end(JSON.stringify({ error: result.error || "TTS failed" }));
             }
           } else {
-            const cfg = JSON.parse(JSON.stringify(api.config));
-            const tts = ((cfg as any).messages ??= {}).tts ??= {};
-            if (provider) tts.provider = provider;
-            if (voice) {
-              const edge = tts.edge ??= {};
-              edge.voice = voice;
-            }
-            const result = await textToSpeech({ text, cfg });
+            const result = await edgeTts({ text, voice: voice || prefs.voice });
             if (result.success && result.audioPath) {
               const audioId = registerAudioFile(result.audioPath);
               res.writeHead(200, {
@@ -717,7 +713,7 @@ const plugin = {
     });
 
     // ----- Persona endpoint (SOUL.md / IDENTITY.md) -----
-    const workspaceRoot = resolveAgentWorkspaceDir(api.config, resolveDefaultAgentId(api.config));
+    const workspaceRoot = api.resolvePath(".");
     const soulPath = path.join(workspaceRoot, "SOUL.md");
     const identityPath = path.join(workspaceRoot, "IDENTITY.md");
 
