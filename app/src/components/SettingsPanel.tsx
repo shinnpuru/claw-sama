@@ -448,19 +448,33 @@ export function SettingsPanel({
 
           {tab === 'model' && (
             <div style={sectionStyle}>
-              <div style={labelStyle}>VRM模型</div>
+              <div style={labelStyle}>内置VRM模型</div>
               <select
-                value={currentModel}
+                value={BUILTIN_MODELS.includes(currentModel) ? currentModel : ''}
                 onChange={(e) => { onModelChange(e.target.value); saveModelPath(e.target.value) }}
                 style={selectStyle}
               >
+                {!BUILTIN_MODELS.includes(currentModel) && <option value="" disabled>未选择</option>}
                 {BUILTIN_MODELS.map((m) => (
                   <option key={m} value={m}>{m.replace(/^\//, '')}</option>
                 ))}
-                {models.map((m) => (
-                  <option key={m} value={m}>{decodeURIComponent(m.split('/').pop() || m)} (自定义)</option>
-                ))}
               </select>
+
+              {models.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={labelStyle}>自定义VRM模型</div>
+                  <select
+                    value={!BUILTIN_MODELS.includes(currentModel) ? currentModel : ''}
+                    onChange={(e) => { onModelChange(e.target.value); saveModelPath(e.target.value) }}
+                    style={selectStyle}
+                  >
+                    {BUILTIN_MODELS.includes(currentModel) && <option value="" disabled>未选择</option>}
+                    {models.map((m) => (
+                      <option key={m} value={m}>{decodeURIComponent(m.split('/').pop() || m)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div style={{ marginTop: 12 }}>
                 <div style={labelStyle}>导入自定义模型</div>
@@ -476,7 +490,6 @@ export function SettingsPanel({
                       })
                       const data = await res.json()
                       if (data.url) {
-                        // Refresh model list and select the new one
                         fetch(`${OPENCLAW_URL}/plugins/claw-sama/model/list`)
                           .then((r) => r.json())
                           .then((d) => { if (d.models) setModels(d.models) })
@@ -493,7 +506,7 @@ export function SettingsPanel({
                   浏览本地文件…
                 </button>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>
-                  选择本地 .vrm 文件，将自动拷贝到内置模型目录
+                  选择本地 .vrm 文件，将保存到工作区 models 目录
                 </div>
               </div>
             </div>
