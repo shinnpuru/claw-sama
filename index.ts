@@ -1069,8 +1069,11 @@ $bmp.Dispose()
       },
     });
 
-    // ----- List & import VRM models from public dir -----
-    const publicDir = path.join(_extDir, "app", "public");
+    // ----- List & import VRM models -----
+    // Built-in models are bundled inside the Tauri app (app/public/).
+    // Custom models are stored in workspace/models/ and served via HTTP.
+    const BUILTIN_MODELS = ["/model1.vrm", "/model2.vrm", "/model3.vrm", "/model4.vrm"];
+    const customModelsDir = path.join(workspaceRoot, "models");
 
     api.registerHttpRoute({
       path: "/plugins/claw-sama/model/list",
@@ -1084,15 +1087,53 @@ $bmp.Dispose()
         }
         if (req.method !== "GET") { res.writeHead(405); res.end(); return; }
         try {
-          const { readdirSync } = await import("node:fs");
-          const files = existsSync(publicDir)
-            ? readdirSync(publicDir).filter((f: string) => f.toLowerCase().endsWith(".vrm")).map((f: string) => `/${f}`)
-            : [];
+          let custom: string[] = [];
+          if (existsSync(customModelsDir)) {
+            custom = readdirSync(customModelsDir)
+              .filter((f: string) => f.toLowerCase().endsWith(".vrm"))
+              .map((f: string) => `${GATEWAY_URL}/plugins/claw-sama/model/serve/${f}`);
+          }
           res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-          res.end(JSON.stringify({ models: files }));
+          res.end(JSON.stringify({ models: [...BUILTIN_MODELS, ...custom] }));
         } catch {
           res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-          res.end(JSON.stringify({ models: [] }));
+          res.end(JSON.stringify({ models: [...BUILTIN_MODELS] }));
+        }
+      },
+    });
+
+    // Serve custom model files from workspace/models/
+    api.registerHttpRoute({
+      path: "/plugins/claw-sama/model/serve",
+      auth: "plugin",
+      match: "prefix",
+      handler: async (req, res) => {
+        if (req.method !== "GET") { res.writeHead(405); res.end(); return; }
+        const url = req.url ?? "";
+        const fileName = decodeURIComponent(url.split("/plugins/claw-sama/model/serve/")[1]?.split("?")[0] ?? "");
+        if (!fileName || fileName.includes("..") || fileName.includes("/")) {
+          res.writeHead(400, { "Access-Control-Allow-Origin": "*" });
+          res.end("invalid file name");
+          return;
+        }
+        const filePath = path.join(customModelsDir, fileName);
+        if (!existsSync(filePath)) {
+          res.writeHead(404, { "Access-Control-Allow-Origin": "*" });
+          res.end("not found");
+          return;
+        }
+        try {
+          const data = readFileSync(filePath);
+          res.writeHead(200, {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": data.length,
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=3600",
+          });
+          res.end(data);
+        } catch {
+          res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
+          res.end("read error");
         }
       },
     });
@@ -1126,12 +1167,12 @@ $bmp.Dispose()
           return;
         }
         try {
-          mkdirSync(publicDir, { recursive: true });
+          mkdirSync(customModelsDir, { recursive: true });
           const safeName = path.basename(srcPath).replace(/[^a-zA-Z0-9._-]/g, "_");
-          const dest = path.join(publicDir, safeName);
+          const dest = path.join(customModelsDir, safeName);
           const { copyFileSync } = await import("node:fs");
           copyFileSync(srcPath, dest);
-          const url = `/${safeName}`;
+          const url = `${GATEWAY_URL}/plugins/claw-sama/model/serve/${safeName}`;
           res.writeHead(200, {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",

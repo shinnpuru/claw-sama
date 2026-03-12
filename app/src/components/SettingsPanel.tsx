@@ -447,15 +447,21 @@ export function SettingsPanel({
 
           {tab === 'model' && (
             <div style={sectionStyle}>
-              <div style={labelStyle}>内置VRM模型</div>
+              <div style={labelStyle}>VRM模型</div>
               <select
                 value={currentModel}
                 onChange={(e) => { onModelChange(e.target.value); saveModelPath(e.target.value) }}
                 style={selectStyle}
               >
-                {models.map((m) => (
-                  <option key={m} value={m}>{m.replace(/^\//, '')}</option>
-                ))}
+                {models.map((m) => {
+                  // Built-in: "/model1.vrm" → "model1.vrm"
+                  // Custom:   "http://.../serve/xxx.vrm" → "xxx.vrm (自定义)"
+                  const isCustom = m.startsWith('http')
+                  const name = isCustom
+                    ? decodeURIComponent(m.split('/').pop() || m) + ' (自定义)'
+                    : m.replace(/^\//, '')
+                  return <option key={m} value={m}>{name}</option>
+                })}
               </select>
 
               <div style={{ marginTop: 12 }}>
