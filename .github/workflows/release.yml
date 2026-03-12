@@ -90,6 +90,7 @@ jobs:
           generate_release_notes: true
 
   publish-npm:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +100,25 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Place binaries for npm package
+        run: |
+          # Windows exe
+          mkdir -p app/src-tauri/target/release
+          cp artifacts/claw-sama-windows/app/src-tauri/target/x86_64-pc-windows-msvc/release/claw-sama.exe \
+             app/src-tauri/target/release/claw-sama.exe
+
+          # macOS dmg files
+          mkdir -p app/src-tauri/target/release/bundle/dmg
+          find artifacts -name '*.dmg' -exec cp {} app/src-tauri/target/release/bundle/dmg/ \;
+
+          echo "=== npm package contents ==="
+          find app/src-tauri/target/release -type f
 
       - name: Publish to npm
         run: npm publish --access public

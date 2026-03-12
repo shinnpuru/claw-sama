@@ -1,6 +1,6 @@
 {
   "name": "@luckybugqqq/claw-sama",
-  "version": "0.2.1",
+  "version": "0.2.5",
   "description": "VRM avatar desktop pet plugin for OpenClaw",
   "type": "module",
   "openclaw": {
@@ -8,6 +8,11 @@
       "./index.ts"
     ]
   },
+  "files": [
+    "index.ts",
+    "app/src-tauri/target/release/claw-sama.exe",
+    "app/src-tauri/target/release/bundle/dmg/"
+  ],
   "peerDependencies": {
     "openclaw": "*",
     "@sinclair/typebox": "*"
