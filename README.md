@@ -51,17 +51,17 @@ Claw Sama 是一个基于 [OpenClaw](https://github.com/anthropics/openclaw) 插
 - 一键生成人设——截取模型截图，AI 自动生成匹配的角色设定
 - Edge TTS（免费，中/英/日语音）或通义千问 TTS（20+ 种表现力丰富的语音）
 
-### 👀 Screen Observation / 屏幕观察
-- Captures your desktop every 60 seconds and AI understands what you're doing
-- **Playing games?** She cheers you on and gives tips
-- **Writing code?** She reminds you to take a break
-- **Watching videos?** She comments on what you're watching
-- **Browsing the web?** She casually chats about what she sees
-- 每 60 秒截取桌面，AI 理解你在做什么并主动互动
-- **打游戏？** 给你加油打气
-- **写代码？** 提醒你该休息了
-- **看视频？** 一起聊聊内容
-- **刷网页？** 随口聊几句看到的东西
+### 👀 Companion Interaction / 陪伴式交互
+- She watches your screen and understands what you're doing — then talks to you about it
+- **Playing Slay the Spire?** She helps you plan your deck and warns you about elite fights
+- **Debugging a React component?** She notices you've been stuck for a while and suggests taking a break
+- **Watching a movie on Bilibili?** She comments on the plot twist she just saw
+- **Reading documentation?** She quietly cheers you on: "You got this!"
+- 通过屏幕观察识别你的行为，然后主动跟你聊
+- **在打杀戮尖塔？** 她会帮你分析卡组搭配，提醒你小心精英怪
+- **调试 React 组件？** 她发现你卡了好一会儿，建议你起来活动活动
+- **在 B 站看电影？** 她会吐槽刚才的剧情反转
+- **在看技术文档？** 她默默给你打气："加油，你可以的！"
 
 ### 🖥️ Desktop Integration / 桌面集成
 - Always-on-top transparent window — she floats above everything
