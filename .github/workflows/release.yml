@@ -114,31 +114,32 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: find artifacts -type f -o -type d | head -50
+
       - name: Place binaries for npm package
         run: |
-          # Windows exe
-          mkdir -p app/src-tauri/target/release
-          cp artifacts/claw-sama-windows/app/src-tauri/target/x86_64-pc-windows-msvc/release/claw-sama.exe \
-             app/src-tauri/target/release/claw-sama.exe
-
-          # macOS .app bundles (architecture-specific names)
           mkdir -p app/src-tauri/target/release/bundle/macos
 
-          # aarch64 (Apple Silicon)
-          if [ -d "artifacts/claw-sama-app-aarch64-apple-darwin" ]; then
-            app_dir=$(find artifacts/claw-sama-app-aarch64-apple-darwin -name '*.app' -type d | head -1)
-            if [ -n "$app_dir" ]; then
-              cp -r "$app_dir" app/src-tauri/target/release/bundle/macos/claw-sama-aarch64.app
-            fi
+          # Windows exe — find it wherever it landed
+          exe=$(find artifacts -name 'claw-sama.exe' -type f | head -1)
+          if [ -n "$exe" ]; then
+            cp "$exe" app/src-tauri/target/release/claw-sama.exe
+            echo "Found exe: $exe"
+          else
+            echo "WARNING: claw-sama.exe not found"
           fi
 
-          # x86_64 (Intel)
-          if [ -d "artifacts/claw-sama-app-x86_64-apple-darwin" ]; then
-            app_dir=$(find artifacts/claw-sama-app-x86_64-apple-darwin -name '*.app' -type d | head -1)
+          # macOS .app bundles
+          for arch in aarch64 x86_64; do
+            app_dir=$(find artifacts -path "*${arch}*" -name '*.app' -type d | head -1)
             if [ -n "$app_dir" ]; then
-              cp -r "$app_dir" app/src-tauri/target/release/bundle/macos/claw-sama-x86_64.app
+              cp -r "$app_dir" "app/src-tauri/target/release/bundle/macos/claw-sama-${arch}.app"
+              echo "Found ${arch} .app: $app_dir"
+            else
+              echo "WARNING: ${arch} .app not found"
             fi
-          fi
+          done
 
           echo "=== npm package contents ==="
           find app/src-tauri/target/release -type f | head -20

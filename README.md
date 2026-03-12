@@ -64,20 +64,11 @@ Claw Sama is an AI desktop pet built as an [OpenClaw](https://github.com/anthrop
 ### As OpenClaw Plugin (recommended)
 
 ```bash
-npm install @luckybugqqq/claw-sama
+openclaw plugins install @luckybugqqq/claw-sama
 ```
 
 The npm package includes pre-built binaries for Windows (.exe) and macOS (.app). OpenClaw loads the plugin and launches the desktop pet automatically.
 
-### From GitHub Releases
-
-Download the latest build from [Releases](https://github.com/luckybugqqq/claw-sama/releases):
-
-| Platform | Download |
-|----------|----------|
-| Windows | `claw-sama.exe` / `.msi` / NSIS installer |
-| macOS (Apple Silicon) | `.dmg` |
-| macOS (Intel) | `.dmg` |
 
 ### Build from Source
 
