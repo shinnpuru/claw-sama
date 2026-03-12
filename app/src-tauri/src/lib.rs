@@ -206,6 +206,42 @@ pub fn run() {
 
             setup_tray(app)?;
 
+            // macOS application menu (top-left menu bar)
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{MenuBuilder, SubmenuBuilder};
+
+                let app_menu = SubmenuBuilder::new(app, "Claw Sama")
+                    .item(&MenuItem::with_id(app, "app_toggle", "显示/隐藏", true, Some("CmdOrCtrl+Shift+H"))?)
+                    .item(&MenuItem::with_id(app, "app_settings", "设置", true, Some("CmdOrCtrl+,"))?)
+                    .separator()
+                    .quit()
+                    .build()?;
+
+                let menu = MenuBuilder::new(app).item(&app_menu).build()?;
+                app.set_menu(menu)?;
+
+                let win = window.clone();
+                app.on_menu_event(move |_app, event| {
+                    match event.id().as_ref() {
+                        "app_toggle" => {
+                            if win.is_visible().unwrap_or(false) {
+                                let _ = win.hide();
+                            } else {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                        "app_settings" => {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                            let _ = win.emit("open-settings", ());
+                        }
+                        _ => {}
+                    }
+                });
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
