@@ -1082,9 +1082,14 @@ const plugin = {
 
     function launchBinary(binPath: string) {
       api.logger.info(`Launching Claw Sama: ${binPath}`);
-      // macOS .app bundles must be opened via `open` command
       if (process.platform === "darwin" && binPath.endsWith(".app")) {
-        tauriProcess = spawn("open", ["-W", "-a", binPath], { stdio: "ignore" });
+        // Launch the actual binary inside .app bundle so we can kill it directly
+        const innerBin = path.join(binPath, "Contents", "MacOS", "claw-sama");
+        if (existsSync(innerBin)) {
+          tauriProcess = spawn(innerBin, [], { cwd: appDir, stdio: "ignore" });
+        } else {
+          tauriProcess = spawn("open", ["-W", "-a", binPath], { stdio: "ignore" });
+        }
       } else {
         tauriProcess = spawn(binPath, [], { cwd: appDir, stdio: "ignore" });
       }
@@ -1185,8 +1190,13 @@ const plugin = {
     api.on("gateway_stop", () => {
       if (tauriProcess) {
         api.logger.info("Stopping Claw Sama...");
-        tauriProcess.kill();
+        // SIGTERM first, then SIGKILL after 3s if still alive
+        const proc = tauriProcess;
         tauriProcess = null;
+        proc.kill("SIGTERM");
+        setTimeout(() => {
+          try { if (!proc.killed) proc.kill("SIGKILL"); } catch { /* ignore */ }
+        }, 3000);
       }
     });
   },
