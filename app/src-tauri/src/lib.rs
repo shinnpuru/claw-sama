@@ -128,6 +128,20 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .icon(app.default_window_icon().unwrap().clone())
         .tooltip("Claw Sama")
         .menu(&menu)
+        .menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        })
         .on_menu_event(move |app: &tauri::AppHandle, event| {
             let Some(window) = app.get_webview_window("main") else {
                 return;

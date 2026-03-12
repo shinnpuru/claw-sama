@@ -38,15 +38,6 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right' }:
       return
     }
 
-    // Request microphone permission first (needed for WebView2)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach((t) => t.stop())
-    } catch (err) {
-      console.error('Microphone permission denied:', err)
-      return
-    }
-
     const recognition = new SpeechRecognition()
     recognition.lang = 'zh-CN'
     recognition.interimResults = true

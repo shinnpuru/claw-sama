@@ -198,12 +198,9 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   useImperativeHandle(ref, () => ({
     setEmotion(emotion: string, intensity?: number) {
       emoteRef.current?.setEmotion(emotion, intensity)
-      console.log("eee");
-      
     },
     setEmotionWithReset(emotion: string, durationMs: number, intensity?: number) {
       emoteRef.current?.setEmotionWithReset(emotion, durationMs, intensity)
-      console.log("rrr");
     },
     resetCamera() {
       resetCameraRef.current?.()
