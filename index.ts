@@ -1080,16 +1080,13 @@ const plugin = {
       return null;
     }
 
+    let launchedAsAppBundle = false;
+
     function launchBinary(binPath: string) {
       api.logger.info(`Launching Claw Sama: ${binPath}`);
       if (process.platform === "darwin" && binPath.endsWith(".app")) {
-        // Launch the actual binary inside .app bundle so we can kill it directly
-        const innerBin = path.join(binPath, "Contents", "MacOS", "claw-sama");
-        if (existsSync(innerBin)) {
-          tauriProcess = spawn(innerBin, [], { cwd: appDir, stdio: "ignore" });
-        } else {
-          tauriProcess = spawn("open", ["-W", "-a", binPath], { stdio: "ignore" });
-        }
+        launchedAsAppBundle = true;
+        tauriProcess = spawn("open", ["-W", "-a", binPath], { stdio: "ignore" });
       } else {
         tauriProcess = spawn(binPath, [], { cwd: appDir, stdio: "ignore" });
       }
@@ -1190,13 +1187,17 @@ const plugin = {
     api.on("gateway_stop", () => {
       if (tauriProcess) {
         api.logger.info("Stopping Claw Sama...");
-        // SIGTERM first, then SIGKILL after 3s if still alive
-        const proc = tauriProcess;
         tauriProcess = null;
-        proc.kill("SIGTERM");
-        setTimeout(() => {
-          try { if (!proc.killed) proc.kill("SIGKILL"); } catch { /* ignore */ }
-        }, 3000);
+        if (launchedAsAppBundle) {
+          // `open -a` spawns a detached process, use osascript to quit gracefully
+          spawn("osascript", ["-e", 'quit app "claw-sama"'], { stdio: "ignore" });
+        } else {
+          const proc = tauriProcess;
+          proc?.kill("SIGTERM");
+          setTimeout(() => {
+            try { if (proc && !proc.killed) proc.kill("SIGKILL"); } catch { /* ignore */ }
+          }, 3000);
+        }
       }
     });
   },
