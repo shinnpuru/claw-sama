@@ -1,6 +1,6 @@
 {
   "name": "@luckybugqqq/claw-sama",
-  "version": "0.2.5",
+  "version": "0.2.7",
   "description": "VRM avatar desktop pet plugin for OpenClaw",
   "type": "module",
   "openclaw": {
