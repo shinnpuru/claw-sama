@@ -74,7 +74,6 @@ async fn start_cursor_monitor(window: tauri::Window) -> Result<(), String> {
             {
                 use core_graphics::event::CGEvent;
                 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
-                use core_graphics::display::CGDisplay;
 
                 let Ok(source) = CGEventSource::new(CGEventSourceStateID::CombinedSessionState) else {
                     continue;
@@ -85,29 +84,22 @@ async fn start_cursor_monitor(window: tauri::Window) -> Result<(), String> {
                 // CGEvent location is in Quartz logical points (origin top-left)
                 let loc = event.location();
 
-                // Tauri returns physical pixels; convert to logical points to match CGEvent
+                // Tauri outer_position() already returns top-left origin (tao flips
+                // Cocoa's bottom-left Y internally), but in physical pixels.
+                // Divide by scale_factor to get logical points matching CGEvent.
                 let scale = window.scale_factor().unwrap_or(1.0);
                 let pos = window.outer_position().unwrap_or_default();
                 let size = window.outer_size().unwrap_or_default();
-
-                let logical_x = pos.x as f64 / scale;
-                let logical_y = pos.y as f64 / scale;
-                let logical_w = size.width as f64 / scale;
-                let logical_h = size.height as f64 / scale;
-
-                // Screen height in logical points for Cocoa→Quartz Y flip
-                let screen_h = CGDisplay::main().pixels_high() as f64 / scale;
-                let win_y_quartz = screen_h - logical_y - logical_h;
 
                 let _ = window.emit(
                     "cursor-position",
                     CursorPosition {
                         x: loc.x as i32,
                         y: loc.y as i32,
-                        window_x: logical_x as i32,
-                        window_y: win_y_quartz as i32,
-                        window_w: logical_w as u32,
-                        window_h: logical_h as u32,
+                        window_x: (pos.x as f64 / scale) as i32,
+                        window_y: (pos.y as f64 / scale) as i32,
+                        window_w: (size.width as f64 / scale) as u32,
+                        window_h: (size.height as f64 / scale) as u32,
                     },
                 );
             }

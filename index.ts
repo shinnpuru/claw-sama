@@ -1113,74 +1113,44 @@ const plugin = {
         return;
       }
 
-      // 2. No binary — check Rust + Cargo toolchain, then build
-      const INSTALL_HINT =
-        "Claw Sama: Rust/Cargo not found. Please install:\n" +
-        "  https://rustup.rs\n" +
-        "  After install, restart your terminal (or run: source $HOME/.cargo/env)\n" +
-        "  Or download pre-built binary from: https://github.com/luckybugqqq/claw-sama/releases";
+      // 2. No binary — fall back to `tauri dev` (requires Rust toolchain)
+      api.logger.info(`No pre-built binary found. Starting dev mode: npx tauri dev (cwd: ${appDir})`);
 
-      // Resolve cargo binary — try PATH first, then common install locations
-      const cargoPath = process.platform === "win32"
-        ? "cargo"
-        : existsSync(`${process.env.HOME}/.cargo/bin/cargo`)
-          ? `${process.env.HOME}/.cargo/bin/cargo`
-          : "cargo";
+      // Install frontend dependencies if node_modules is missing
+      const needsInstall = !existsSync(path.join(appDir, "node_modules"));
+      const doDevLaunch = () => {
+        const devProc = spawn("npx", ["tauri", "dev"], {
+          cwd: appDir,
+          stdio: "inherit",
+          shell: true,
+        });
+        tauriProcess = devProc;
+        devProc.on("error", (err) => {
+          api.logger.warn(`Claw Sama dev error: ${err.message}`);
+          tauriProcess = null;
+        });
+        devProc.on("exit", (code) => {
+          api.logger.info(`Claw Sama dev exited (code: ${code})`);
+          tauriProcess = null;
+        });
+      };
 
-      try {
-        const cargoCheck = spawn(cargoPath, ["--version"], { shell: true, stdio: "pipe" });
-        cargoCheck.on("error", () => { api.logger.warn(INSTALL_HINT); });
-        cargoCheck.on("exit", (cargoCode) => {
-          if (cargoCode !== 0) {
-            api.logger.warn(INSTALL_HINT);
+      if (needsInstall) {
+        api.logger.info(`Installing frontend dependencies: npm install (cwd: ${appDir})`);
+        const installProc = spawn("npm", ["install"], {
+          cwd: appDir,
+          stdio: "inherit",
+          shell: true,
+        });
+        installProc.on("exit", (installCode) => {
+          if (installCode !== 0) {
+            api.logger.warn(`Claw Sama npm install failed (code: ${installCode})`);
             return;
           }
-          // Install frontend dependencies if node_modules is missing
-          const needsInstall = !existsSync(path.join(appDir, "node_modules"));
-          const doBuild = () => {
-            api.logger.info(`Building Claw Sama: npx tauri build (cwd: ${appDir})`);
-            const buildProc = spawn("npx", ["tauri", "build"], {
-              cwd: appDir,
-              stdio: "inherit",
-              shell: true,
-            });
-            buildProc.on("error", (err) => {
-              api.logger.warn(`Claw Sama build error: ${err.message}`);
-            });
-            buildProc.on("exit", (code) => {
-              if (code !== 0) {
-                api.logger.warn(`Claw Sama build failed (code: ${code})`);
-                return;
-              }
-              const built = resolveBuiltBinary();
-              if (built) {
-                launchBinary(built);
-              } else {
-                api.logger.warn("Claw Sama build succeeded but binary not found");
-              }
-            });
-          };
-
-          if (needsInstall) {
-            api.logger.info(`Installing frontend dependencies: npm install (cwd: ${appDir})`);
-            const installProc = spawn("npm", ["install"], {
-              cwd: appDir,
-              stdio: "inherit",
-              shell: true,
-            });
-            installProc.on("exit", (installCode) => {
-              if (installCode !== 0) {
-                api.logger.warn(`Claw Sama npm install failed (code: ${installCode})`);
-                return;
-              }
-              doBuild();
-            });
-          } else {
-            doBuild();
-          }
+          doDevLaunch();
         });
-      } catch {
-        api.logger.warn("Claw Sama: failed to check Rust installation");
+      } else {
+        doDevLaunch();
       }
     });
 
