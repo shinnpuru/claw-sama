@@ -713,7 +713,11 @@ const plugin = {
     });
 
     // ----- Persona endpoint (SOUL.md / IDENTITY.md) -----
-    const workspaceRoot = api.resolvePath(".");
+    const profile = process.env.OPENCLAW_PROFILE?.trim();
+    const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+    const workspaceRoot = (profile && profile.toLowerCase() !== "default")
+      ? path.join(homeDir, ".openclaw", `workspace-${profile}`)
+      : path.join(homeDir, ".openclaw", "workspace");
     const soulPath = path.join(workspaceRoot, "SOUL.md");
     const identityPath = path.join(workspaceRoot, "IDENTITY.md");
 
