@@ -1107,23 +1107,26 @@ const plugin = {
         return;
       }
 
-      // 2. No binary — check Rust toolchain, then build
+      // 2. No binary — check Rust + Cargo toolchain, then build
+      const INSTALL_HINT =
+        "Claw Sama: Rust/Cargo not found. Please install:\n" +
+        "  https://rustup.rs\n" +
+        "  After install, restart your terminal (or run: source $HOME/.cargo/env)\n" +
+        "  Or download pre-built binary from: https://github.com/luckybugqqq/claw-sama/releases";
+
+      // Resolve cargo binary — try PATH first, then common install locations
+      const cargoPath = process.platform === "win32"
+        ? "cargo"
+        : existsSync(`${process.env.HOME}/.cargo/bin/cargo`)
+          ? `${process.env.HOME}/.cargo/bin/cargo`
+          : "cargo";
+
       try {
-        const rustCheck = spawn("rustc", ["--version"], { shell: true, stdio: "pipe" });
-        rustCheck.on("error", () => {
-          api.logger.warn(
-            "Claw Sama: Rust is not installed. Please install Rust first:\n" +
-            "  Windows / macOS / Linux: https://rustup.rs\n" +
-            "  Or download pre-built binary from: https://github.com/luckybugqqq/claw-sama/releases",
-          );
-        });
-        rustCheck.on("exit", (rustCode) => {
-          if (rustCode !== 0) {
-            api.logger.warn(
-              "Claw Sama: Rust is not installed. Please install Rust first:\n" +
-              "  Windows / macOS / Linux: https://rustup.rs\n" +
-              "  Or download pre-built binary from: https://github.com/luckybugqqq/claw-sama/releases",
-            );
+        const cargoCheck = spawn(cargoPath, ["--version"], { shell: true, stdio: "pipe" });
+        cargoCheck.on("error", () => { api.logger.warn(INSTALL_HINT); });
+        cargoCheck.on("exit", (cargoCode) => {
+          if (cargoCode !== 0) {
+            api.logger.warn(INSTALL_HINT);
             return;
           }
           api.logger.info(`No pre-built binary found, running: npx tauri build (cwd: ${appDir})`);
