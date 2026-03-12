@@ -13,3 +13,4 @@ app/src-tauri/gen/
 prefs.json
 .tmp-tts-*/
 app/public/persona-screenshot.png
+screen-observation.png

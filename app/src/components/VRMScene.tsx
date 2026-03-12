@@ -24,6 +24,7 @@ export interface VRMSceneHandle {
   playAction: (name: string, hold?: boolean) => void
   captureScreenshot: () => string | null
   panCamera: (dx: number, dy: number) => void
+  rotateCamera: (dx: number, dy: number) => void
 }
 
 // ── Blink state ───────────────────────────────────────────────────────────────
@@ -193,6 +194,7 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   const trackingModeRef = useRef<TrackingMode>('mouse')
   const playActionRef = useRef<((name: string) => void) | null>(null)
   const panCameraRef = useRef<((dx: number, dy: number) => void) | null>(null)
+  const rotateCameraRef = useRef<((dx: number, dy: number) => void) | null>(null)
   const lipSyncRef = useRef<LipSync>(LipSync.getInstance())
 
   useImperativeHandle(ref, () => ({
@@ -216,6 +218,9 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
     },
     panCamera(dx: number, dy: number) {
       panCameraRef.current?.(dx, dy)
+    },
+    rotateCamera(dx: number, dy: number) {
+      rotateCameraRef.current?.(dx, dy)
     },
   }))
 
@@ -351,6 +356,16 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
         panCameraRef.current = (dx: number, dy: number) => {
           pivot.x -= dx * 0.003
           pivot.y += dy * 0.003
+          updateCameraOrbit()
+        }
+
+        rotateCameraRef.current = (dx: number, dy: number) => {
+          orbitTheta -= dx * 0.005
+          orbitPhi = THREE.MathUtils.clamp(
+            orbitPhi - dy * 0.005,
+            0.1,
+            Math.PI - 0.1,
+          )
           updateCameraOrbit()
         }
 

@@ -3,7 +3,7 @@ import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
 import type { ServerResponse } from "node:http";
 import type { ChildProcess } from "node:child_process";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync } from "node:fs";
 
 
@@ -179,6 +179,7 @@ interface ClasSamaPrefs {
   tracking?: "mouse" | "camera";
   volume?: number;
   uiAlign?: "left" | "right";
+  screenObserve?: boolean;
 }
 
 const _extDir = typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
@@ -328,10 +329,16 @@ const plugin = {
     // so the hook chain is never blocked.
     api.on("llm_output", (event, ctx) => {
       if (ctx.sessionKey !== "agent:main:main") return;
-      const raw = (event as any).assistantTexts?.join("\n");
+      const assistantTexts: string[] | undefined = (event as any).assistantTexts;
+      if (!assistantTexts || assistantTexts.length === 0) return;
+      // Filter out thinking messages (start with "think") and heartbeat
+      const filtered = assistantTexts.filter((t) => {
+        const trimmed = t.trim();
+        return trimmed && !trimmed.toLowerCase().startsWith("think") && trimmed !== "HEARTBEAT_OK";
+      });
+      const raw = filtered.join("\n");
       if (!raw) return;
       const text = stripThinking(raw);
-      if (!text) return;
 
       const emotion = pendingEmotion;
       pendingEmotion = null;
@@ -674,6 +681,7 @@ const plugin = {
             tracking: prefs.tracking,
             volume: prefs.volume,
             uiAlign: prefs.uiAlign,
+            screenObserve: prefs.screenObserve,
           }));
           return;
         }
@@ -689,6 +697,7 @@ const plugin = {
           if (body.tracking !== undefined) patch.tracking = body.tracking;
           if (body.volume !== undefined) patch.volume = body.volume;
           if (body.uiAlign !== undefined) patch.uiAlign = body.uiAlign;
+          if (body.screenObserve !== undefined) patch.screenObserve = body.screenObserve;
           prefs = updatePrefs(patch);
           res.writeHead(200, {
             "Content-Type": "application/json",
@@ -937,6 +946,129 @@ const plugin = {
       },
     });
 
+    // ----- Screen observation — capture desktop screenshot & send to LLM -----
+    let screenObserveRunning = false;
+
+    function captureDesktopScreenshot(savePath: string): boolean {
+      try {
+        mkdirSync(path.dirname(savePath), { recursive: true });
+        if (process.platform === "darwin") {
+          execFileSync("screencapture", ["-x", "-C", savePath], { timeout: 10_000 });
+        } else if (process.platform === "win32") {
+          // PowerShell one-liner to capture the primary screen
+          const ps = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+$bmp.Save('${savePath.replace(/\\/g, "\\\\")}', [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose()
+$bmp.Dispose()
+`.trim();
+          execFileSync("powershell", ["-NoProfile", "-Command", ps], { timeout: 15_000 });
+        } else {
+          // Linux — try gnome-screenshot, scrot, or import (ImageMagick)
+          try {
+            execFileSync("gnome-screenshot", ["-f", savePath], { timeout: 10_000 });
+          } catch {
+            try {
+              execFileSync("scrot", [savePath], { timeout: 10_000 });
+            } catch {
+              execFileSync("import", ["-window", "root", savePath], { timeout: 10_000 });
+            }
+          }
+        }
+        return existsSync(savePath);
+      } catch (err) {
+        api.logger.warn("claw-sama screen capture failed: " + String(err));
+        return false;
+      }
+    }
+
+    api.registerHttpRoute({
+      path: "/plugins/claw-sama/screen/observe",
+      auth: "plugin",
+      match: "exact",
+      handler: async (req, res) => {
+        if (req.method === "OPTIONS") {
+          res.writeHead(204, {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+          });
+          res.end();
+          return;
+        }
+        if (req.method !== "POST") {
+          res.writeHead(405);
+          res.end();
+          return;
+        }
+
+        // Prevent concurrent runs
+        if (screenObserveRunning) {
+          res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+          res.end(JSON.stringify({ ok: true, skipped: true, reason: "already running" }));
+          return;
+        }
+
+        const observePath = path.join(workspaceRoot, "screen-observation.png");
+
+        try {
+          screenObserveRunning = true;
+
+          // 1. Capture desktop screenshot
+          const captured = captureDesktopScreenshot(observePath);
+          if (!captured) {
+            res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
+            res.end(JSON.stringify({ error: "screenshot capture failed" }));
+            return;
+          }
+
+          api.logger.info(`claw-sama screen observation: captured ${observePath}`);
+
+          // 2. Send to main agent with companion-style prompt
+          const observePrompt = [
+            `请先使用 read 工具读取以下截图，观察用户当前屏幕上在做什么：`,
+            ``,
+            observePath,
+            ``,
+            `根据你看到的内容，以桌面宠物/陪伴角色的身份，简短地（1-2句话）主动跟用户互动。`,
+            `规则：`,
+            `- 如果用户在打游戏：鼓励他，给出简短的加油或建议`,
+            `- 如果用户在听音乐/看视频：评论一下内容，或者推荐类似的`,
+            `- 如果用户在写代码/工作：关心他是否累了，偶尔提醒休息`,
+            `- 如果用户在浏览网页/社交媒体：轻松地聊聊看到的内容`,
+            `- 如果用户在看文档/学习：鼓励他，表示支持`,
+            `- 如果屏幕没什么特别的：随意聊几句，像朋友一样`,
+            ``,
+            `注意：要自然、简短、不要啰嗦，像一个活泼的伙伴在旁边随口说一句。不要提到"截图"或"屏幕观察"这些词，就像你真的在旁边看到的一样。`,
+            `记得先调用 claw_sama_emotion 设置合适的表情。`,
+          ].join("\n");
+
+          const result = await api.runtime.subagent.run({
+            sessionKey: "main",
+            message: observePrompt,
+            idempotencyKey: `screen-observe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          });
+
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ ok: true, runId: result.runId }));
+        } catch (err) {
+          api.logger.warn("claw-sama screen observe error: " + String(err));
+          res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
+          res.end(JSON.stringify({ error: String(err) }));
+        } finally {
+          screenObserveRunning = false;
+        }
+      },
+    });
+
     // ----- List & import VRM models from public dir -----
     const publicDir = path.join(_extDir, "app", "public");
 
@@ -1055,7 +1187,7 @@ const plugin = {
       },
     });
 
-    api.logger.info("Claw Sama plugin registered — routes: /events, /audio, /voice, /preview, /chat, /settings, /persona, /model/local, /context/clear");
+    api.logger.info("Claw Sama plugin registered — routes: /events, /audio, /voice, /preview, /chat, /settings, /persona, /screen/observe, /model/local, /context/clear");
 
     // ── Launch Tauri desktop app when gateway is ready ──────────────────────
     const appDir = path.resolve(_extDir, "app");

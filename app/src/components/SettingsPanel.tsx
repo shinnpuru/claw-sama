@@ -20,6 +20,8 @@ interface SettingsPanelProps {
   onVolumeChange: (v: number) => void
   uiAlign: 'left' | 'right'
   onUiAlignChange: (v: 'left' | 'right') => void
+  screenObserve: boolean
+  onScreenObserveChange: (v: boolean) => void
   /** Return a data URL screenshot of the current VRM canvas */
   captureVrmScreenshot?: () => string | null
 }
@@ -81,6 +83,7 @@ export function SettingsPanel({
   tracking, onTrackingChange,
   volume, onVolumeChange,
   uiAlign, onUiAlignChange,
+  screenObserve, onScreenObserveChange,
   captureVrmScreenshot,
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<Tab>('general')
@@ -330,6 +333,12 @@ export function SettingsPanel({
                   ))}
                 </div>
               </div>
+              <ToggleRow label="屏幕观察" value={screenObserve} onChange={onScreenObserveChange} />
+              {screenObserve && (
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: -8 }}>
+                  每分钟截取屏幕，AI 会根据你在做什么主动跟你互动
+                </div>
+              )}
             </div>
           )}
 

@@ -11,7 +11,7 @@ import { LipSync } from './lip-sync'
 import { bindScene } from './api'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
-import { Menu, Pin, Move, RotateCcw, EyeOff, Settings, Trash2 } from 'lucide-react'
+import { Menu, Pin, Move, RotateCcw, Rotate3D, EyeOff, Settings, Trash2 } from 'lucide-react'
 
 const DEFAULT_MODEL = '/model1.vrm'
 const OPENCLAW_URL = 'http://127.0.0.1:18789'
@@ -57,6 +57,7 @@ export default function App() {
   const [hideUI, setHideUI] = useState(false)
   const [volume, setVolume] = useState(1)
   const [uiAlign, setUiAlign] = useState<'left' | 'right'>('right')
+  const [screenObserve, setScreenObserve] = useState(false)
   usePassThrough(!settingsOpen)
 
   // Load persisted settings on mount
@@ -71,6 +72,7 @@ export default function App() {
         if (s.tracking) { setTracking(s.tracking); sceneRef.current?.setTrackingMode(s.tracking) }
         if (s.volume !== undefined) { setVolume(s.volume); LipSync.getInstance().setVolume(s.volume) }
         if (s.uiAlign) setUiAlign(s.uiAlign)
+        if (s.screenObserve !== undefined) setScreenObserve(s.screenObserve)
       })
       .catch(() => {})
   }, [])
@@ -151,6 +153,23 @@ export default function App() {
     return () => clearInterval(timer)
   }, [])
 
+  // ── Screen observation: capture desktop & send to LLM every 60s ─────────
+  useEffect(() => {
+    if (!screenObserve) return
+    const OBSERVE_INTERVAL_MS = 60_000
+
+    const doObserve = () => {
+      fetch(`${OPENCLAW_URL}/plugins/claw-sama/screen/observe`, { method: 'POST' })
+        .catch(() => {})
+    }
+
+    const timer = setInterval(doObserve, OBSERVE_INTERVAL_MS)
+    // Also fire once immediately on enable
+    doObserve()
+
+    return () => clearInterval(timer)
+  }, [screenObserve])
+
   const clearContext = async () => {
     try {
       await fetch(`${OPENCLAW_URL}/plugins/claw-sama/context/clear`, { method: 'POST' })
@@ -195,6 +214,8 @@ export default function App() {
         onVolumeChange={handleVolumeChange}
         uiAlign={uiAlign}
         onUiAlignChange={(v) => { setUiAlign(v); saveSettings({ uiAlign: v }) }}
+        screenObserve={screenObserve}
+        onScreenObserveChange={(v) => { setScreenObserve(v); saveSettings({ screenObserve: v }) }}
         captureVrmScreenshot={() => sceneRef.current?.captureScreenshot() ?? null}
       />
       {!hideUI && <div
@@ -250,6 +271,28 @@ export default function App() {
             title="拖动移动人物位置"
           >
             <Move size={16} />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault()
+              let lastX = e.clientX
+              let lastY = e.clientY
+              const onMove = (ev: MouseEvent) => {
+                sceneRef.current?.rotateCamera(ev.clientX - lastX, ev.clientY - lastY)
+                lastX = ev.clientX
+                lastY = ev.clientY
+              }
+              const onUp = () => {
+                window.removeEventListener('mousemove', onMove)
+                window.removeEventListener('mouseup', onUp)
+              }
+              window.addEventListener('mousemove', onMove)
+              window.addEventListener('mouseup', onUp)
+            }}
+            style={{ ...btnStyle, cursor: 'grab' }}
+            title="拖动旋转视角"
+          >
+            <Rotate3D size={16} />
           </button>
           <button
             onClick={() => sceneRef.current?.resetCamera()}
