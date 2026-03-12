@@ -1,5 +1,5 @@
 {
-  "productName": "claw-sama",
+  "productName": "Claw Sama",
   "version": "0.1.0",
   "identifier": "com.claw.sama",
   "build": {
@@ -36,6 +36,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Claw Sama needs microphone access for voice input."
+      }
+    }
   }
 }
