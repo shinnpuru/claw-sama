@@ -21,6 +21,17 @@
 
 ---
 
+<p align="center">
+  <img src="img/display1.gif" width="48%" />
+  <img src="img/display2.png" width="48%" />
+</p>
+<p align="center">
+  <img src="img/display3.png" width="48%" />
+  <img src="img/display4.png" width="48%" />
+</p>
+
+---
+
 ## What is Claw Sama? / 这是什么？
 
 Claw Sama is an AI desktop pet built as an [OpenClaw](https://github.com/anthropics/openclaw) plugin. She lives on your desktop as a 3D VRM avatar, talks to you with voice, reacts with emotions, and even watches your screen to keep you company.
