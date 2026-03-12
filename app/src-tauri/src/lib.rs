@@ -82,26 +82,32 @@ async fn start_cursor_monitor(window: tauri::Window) -> Result<(), String> {
                 let Ok(event) = CGEvent::new(source) else {
                     continue;
                 };
-                // CGEvent location is in Quartz coordinates (origin top-left) — good
+                // CGEvent location is in Quartz logical points (origin top-left)
                 let loc = event.location();
 
-                // window.outer_position() returns Cocoa coordinates (origin bottom-left)
-                // Convert to Quartz (top-left) by flipping Y:
-                //   quartz_y = screen_height - cocoa_y - window_height
+                // Tauri returns physical pixels; convert to logical points to match CGEvent
+                let scale = window.scale_factor().unwrap_or(1.0);
                 let pos = window.outer_position().unwrap_or_default();
                 let size = window.outer_size().unwrap_or_default();
-                let screen_h = CGDisplay::main().pixels_high() as i32;
-                let win_y_quartz = screen_h - pos.y - size.height as i32;
+
+                let logical_x = pos.x as f64 / scale;
+                let logical_y = pos.y as f64 / scale;
+                let logical_w = size.width as f64 / scale;
+                let logical_h = size.height as f64 / scale;
+
+                // Screen height in logical points for Cocoa→Quartz Y flip
+                let screen_h = CGDisplay::main().pixels_high() as f64 / scale;
+                let win_y_quartz = screen_h - logical_y - logical_h;
 
                 let _ = window.emit(
                     "cursor-position",
                     CursorPosition {
                         x: loc.x as i32,
                         y: loc.y as i32,
-                        window_x: pos.x,
-                        window_y: win_y_quartz,
-                        window_w: size.width,
-                        window_h: size.height,
+                        window_x: logical_x as i32,
+                        window_y: win_y_quartz as i32,
+                        window_w: logical_w as u32,
+                        window_h: logical_h as u32,
                     },
                 );
             }
