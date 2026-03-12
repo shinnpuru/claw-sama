@@ -50,9 +50,16 @@ jobs:
         with:
           name: claw-sama-windows
           path: |
-            app/src-tauri/target/x86_64-pc-windows-msvc/release/claw-sama.exe
             app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
             app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+
+      - name: Zip .app bundle (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          cd app/src-tauri/target/${{ matrix.target }}/release/bundle/macos
+          for app in *.app; do
+            zip -r "${app%.app}-${{ matrix.target }}.app.zip" "$app"
+          done
 
       - name: Upload artifacts (macOS)
         if: startsWith(matrix.platform, 'macos')
@@ -61,7 +68,7 @@ jobs:
           name: claw-sama-macos-${{ matrix.target }}
           path: |
             app/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.zip
 
   release:
     needs: build
@@ -70,9 +77,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f 2>/dev/null || ls -R artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: artifacts/**
           generate_release_notes: true
