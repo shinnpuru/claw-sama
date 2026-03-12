@@ -1,11 +1,15 @@
 {
   "name": "@openclaw/claw-sama",
   "version": "0.1.0",
-  "description": "Forward agent messages to Claw Sama for on-screen display",
+  "description": "VRM avatar desktop pet plugin for OpenClaw",
   "type": "module",
   "openclaw": {
     "extensions": [
       "./index.ts"
     ]
+  },
+  "peerDependencies": {
+    "openclaw": "*",
+    "@sinclair/typebox": "*"
   }
 }
