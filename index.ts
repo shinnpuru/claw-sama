@@ -1107,28 +1107,50 @@ const plugin = {
         return;
       }
 
-      // 2. No binary — build first, then launch
-      api.logger.info(`No pre-built binary found, running: npx tauri build (cwd: ${appDir})`);
-      const buildProc = spawn("npx", ["tauri", "build"], {
-        cwd: appDir,
-        stdio: "inherit",
-        shell: true,
-      });
-      buildProc.on("error", (err) => {
-        api.logger.warn(`Claw Sama build error: ${err.message}`);
-      });
-      buildProc.on("exit", (code) => {
-        if (code !== 0) {
-          api.logger.warn(`Claw Sama build failed (code: ${code})`);
-          return;
-        }
-        const built = resolveBuiltBinary();
-        if (built) {
-          launchBinary(built);
-        } else {
-          api.logger.warn("Claw Sama build succeeded but binary not found");
-        }
-      });
+      // 2. No binary — check Rust toolchain, then build
+      try {
+        const rustCheck = spawn("rustc", ["--version"], { shell: true, stdio: "pipe" });
+        rustCheck.on("error", () => {
+          api.logger.warn(
+            "Claw Sama: Rust is not installed. Please install Rust first:\n" +
+            "  Windows / macOS / Linux: https://rustup.rs\n" +
+            "  Or download pre-built binary from: https://github.com/luckybugqqq/claw-sama/releases",
+          );
+        });
+        rustCheck.on("exit", (rustCode) => {
+          if (rustCode !== 0) {
+            api.logger.warn(
+              "Claw Sama: Rust is not installed. Please install Rust first:\n" +
+              "  Windows / macOS / Linux: https://rustup.rs\n" +
+              "  Or download pre-built binary from: https://github.com/luckybugqqq/claw-sama/releases",
+            );
+            return;
+          }
+          api.logger.info(`No pre-built binary found, running: npx tauri build (cwd: ${appDir})`);
+          const buildProc = spawn("npx", ["tauri", "build"], {
+            cwd: appDir,
+            stdio: "inherit",
+            shell: true,
+          });
+          buildProc.on("error", (err) => {
+            api.logger.warn(`Claw Sama build error: ${err.message}`);
+          });
+          buildProc.on("exit", (code) => {
+            if (code !== 0) {
+              api.logger.warn(`Claw Sama build failed (code: ${code})`);
+              return;
+            }
+            const built = resolveBuiltBinary();
+            if (built) {
+              launchBinary(built);
+            } else {
+              api.logger.warn("Claw Sama build succeeded but binary not found");
+            }
+          });
+        });
+      } catch {
+        api.logger.warn("Claw Sama: failed to check Rust installation");
+      }
     });
 
     api.on("gateway_stop", () => {
