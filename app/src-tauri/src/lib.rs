@@ -74,6 +74,7 @@ async fn start_cursor_monitor(window: tauri::Window) -> Result<(), String> {
             {
                 use core_graphics::event::CGEvent;
                 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+                use core_graphics::display::CGDisplay;
 
                 let Ok(source) = CGEventSource::new(CGEventSourceStateID::CombinedSessionState) else {
                     continue;
@@ -81,10 +82,16 @@ async fn start_cursor_monitor(window: tauri::Window) -> Result<(), String> {
                 let Ok(event) = CGEvent::new(source) else {
                     continue;
                 };
+                // CGEvent location is in Quartz coordinates (origin top-left) — good
                 let loc = event.location();
 
+                // window.outer_position() returns Cocoa coordinates (origin bottom-left)
+                // Convert to Quartz (top-left) by flipping Y:
+                //   quartz_y = screen_height - cocoa_y - window_height
                 let pos = window.outer_position().unwrap_or_default();
                 let size = window.outer_size().unwrap_or_default();
+                let screen_h = CGDisplay::main().pixels_high() as i32;
+                let win_y_quartz = screen_h - pos.y - size.height as i32;
 
                 let _ = window.emit(
                     "cursor-position",
@@ -92,7 +99,7 @@ async fn start_cursor_monitor(window: tauri::Window) -> Result<(), String> {
                         x: loc.x as i32,
                         y: loc.y as i32,
                         window_x: pos.x,
-                        window_y: pos.y,
+                        window_y: win_y_quartz,
                         window_w: size.width,
                         window_h: size.height,
                     },
