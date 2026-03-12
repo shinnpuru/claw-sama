@@ -115,14 +115,15 @@ async fn stop_cursor_monitor() -> Result<(), String> {
 async fn drag_window(window: tauri::Window) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        use cocoa::appkit::NSWindow;
-        use cocoa::base::id;
+        use objc::{msg_send, sel, sel_impl, class};
 
-        let ns_window = window.ns_window().map_err(|e| e.to_string())? as id;
+        let ns_window = window.ns_window().map_err(|e| e.to_string())?;
+        let ns_window = ns_window as *mut objc::runtime::Object;
         unsafe {
-            let current_event = cocoa::appkit::NSApp().currentEvent();
-            if current_event != cocoa::base::nil {
-                NSWindow::performWindowDragWithEvent_(ns_window, current_event);
+            let app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
+            let event: *mut objc::runtime::Object = msg_send![app, currentEvent];
+            if !event.is_null() {
+                let _: () = msg_send![ns_window, performWindowDragWithEvent: event];
             }
         }
         return Ok(());
