@@ -3,7 +3,8 @@
 </p>
 
 <p align="center">
-  <b>A VRM AI desktop pet powered by OpenClaw plugin</b>
+  <b>A VRM AI desktop pet powered by OpenClaw plugin</b><br/>
+  <b>基于 OpenClaw 插件的 AI 桌面宠物</b>
 </p>
 
 <p align="center">
@@ -20,48 +21,69 @@
 
 ---
 
-## What is Claw Sama?
+## What is Claw Sama? / 这是什么？
 
 Claw Sama is an AI desktop pet built as an [OpenClaw](https://github.com/anthropics/openclaw) plugin. She lives on your desktop as a 3D VRM avatar, talks to you with voice, reacts with emotions, and even watches your screen to keep you company.
 
-## Features
+Claw Sama 是一个基于 [OpenClaw](https://github.com/anthropics/openclaw) 插件实现的 AI 桌面宠物。她以 3D VRM 虚拟形象常驻在你的桌面上，能用语音跟你聊天、实时表达情绪，甚至能观察你的屏幕来主动陪伴你。
 
-### VRM Avatar
-- 3D VRM model rendered with Three.js
-- Facial expressions & emotion system (happy, sad, angry, surprised, think, curious...)
-- Idle animations with random fidgets
-- Mouse/camera gaze tracking
-- Lip-sync synchronized with TTS audio
+## Features / 特性
 
-### AI Conversation
-- Chat via text input or voice (hold F10)
-- LLM-powered responses with personality (configurable via SOUL.md & IDENTITY.md)
-- Emotion tool — AI controls avatar expressions in real-time
-- One-click persona generation from avatar screenshot
+### 🎭 Live VRM Avatar / 活灵活现的虚拟形象
+- 3D VRM model with real-time facial expressions — happy, sad, angry, surprised, think, curious...
+- Lip-sync perfectly matched to voice output
+- Idle animations & random fidgets — she's alive even when you're not talking
+- Eyes follow your mouse cursor or camera
+- 3D VRM 模型，实时面部表情切换
+- 口型与语音完美同步
+- 待机动画和随机小动作——不说话的时候她也是活的
+- 视线跟踪鼠标或摄像头
 
-### Screen Observation
-- Captures your desktop every 60 seconds
-- AI recognizes what you're doing and interacts accordingly
-- Playing games? She cheers you on
-- Writing code? She reminds you to rest
-- Watching videos? She comments on the content
-- Toggle on/off in settings
+### 🧠 AI Conversation / AI 对话
+- Chat via text or voice (hold F10 to speak)
+- LLM-powered personality — she has her own character, not just a chatbot
+- Configurable persona via SOUL.md & IDENTITY.md — define her personality, speech style, backstory
+- One-click persona generation — take a screenshot of the VRM model, AI creates a matching character profile
+- 文字或语音聊天（按住 F10 说话）
+- LLM 驱动的独立人格——不只是聊天机器人，她有自己的性格
+- 通过 SOUL.md 和 IDENTITY.md 自定义人设——定义性格、说话风格、背景故事
+- 一键生成人设——截取模型截图，AI 自动生成匹配的角色设定
 
-### Text-to-Speech
-- Edge TTS (free, multiple Chinese/English/Japanese voices)
-- Qwen TTS (Alibaba Cloud, expressive voices)
-- Volume control & voice preview
+### 👀 Screen Observation / 屏幕观察
+- Captures your desktop every 60 seconds and AI understands what you're doing
+- **Playing games?** She cheers you on and gives tips
+- **Writing code?** She reminds you to take a break
+- **Watching videos?** She comments on what you're watching
+- **Browsing the web?** She casually chats about what she sees
+- 每 60 秒截取桌面，AI 理解你在做什么并主动互动
+- **打游戏？** 给你加油打气
+- **写代码？** 提醒你该休息了
+- **看视频？** 一起聊聊内容
+- **刷网页？** 随口聊几句看到的东西
 
-### Desktop Integration
-- Always-on-top transparent window
-- Click-through when not interacting
-- Drag to move, rotate camera, zoom
-- Pin/unpin, hide/show
-- macOS & Windows native support
+### 🔊 Text-to-Speech / 语音合成
+- Edge TTS — free, supports Chinese / English / Japanese voices
+- Qwen TTS — Alibaba Cloud, rich expressive voices (Cherry, Serena, Momo, and 20+ more)
+- Real-time voice preview in settings
+- Edge TTS——免费，支持中/英/日语音
+- 通义千问 TTS——阿里云，丰富表现力的语音（芊悦、苏瑶、茉兔等 20+ 种）
+- 设置中实时试听
 
-## Install
+### 🖥️ Desktop Integration / 桌面集成
+- Always-on-top transparent window — she floats above everything
+- Click-through — doesn't block your work, only responds when you interact
+- Drag to move, rotate camera, zoom in/out
+- Pin/unpin, hide/show, collapse menu
+- macOS & Windows native support via Tauri
+- 置顶透明窗口——始终浮在最上层
+- 点击穿透——不影响工作，只在你交互时才响应
+- 拖拽移动、旋转视角、缩放
+- 置顶/取消置顶、显示/隐藏、折叠菜单
+- 通过 Tauri 原生支持 macOS 和 Windows
 
-### As OpenClaw Plugin (recommended)
+## Install / 安装
+
+### As OpenClaw Plugin (recommended) / 作为 OpenClaw 插件安装（推荐）
 
 ```bash
 openclaw plugins install @luckybugqqq/claw-sama
@@ -69,8 +91,9 @@ openclaw plugins install @luckybugqqq/claw-sama
 
 The npm package includes pre-built binaries for Windows (.exe) and macOS (.app). OpenClaw loads the plugin and launches the desktop pet automatically.
 
+npm 包内含 Windows (.exe) 和 macOS (.app) 预编译文件。OpenClaw 加载插件后自动启动桌面宠物。
 
-### Build from Source
+### Build from Source / 从源码构建
 
 ```bash
 git clone https://github.com/luckybugqqq/claw-sama.git
@@ -79,50 +102,46 @@ npm install
 npx tauri build
 ```
 
-> Requires Node.js 20+ and Rust toolchain.
+> Requires Node.js 20+ and Rust toolchain. / 需要 Node.js 20+ 和 Rust 工具链。
 
-## Settings
+## Settings / 设置
 
-Open settings via the gear icon on the avatar window:
+Open settings via the gear icon on the avatar window: / 点击角色窗口上的齿轮图标打开设置：
 
-| Tab | Options |
-|-----|---------|
-| General | Hide UI, show subtitles, TTS toggle, volume, gaze tracking, UI alignment, screen observation |
-| Voice | TTS provider (Edge/Qwen), voice selection with preview |
-| Model | Built-in VRM models, import custom .vrm files |
-| Persona | Edit IDENTITY.md & SOUL.md, one-click AI persona generation |
+| Tab / 标签 | Options / 选项 |
+|---|---|
+| General / 常规 | Hide UI, subtitles, TTS, volume, gaze tracking, UI position, screen observation / 隐藏UI、字幕、语音、音量、视线跟踪、UI位置、屏幕观察 |
+| Voice / 语音 | TTS provider (Edge/Qwen), voice selection with preview / TTS 服务商、语音选择与试听 |
+| Model / 形象 | Built-in VRM models, import custom .vrm / 内置VRM模型、导入自定义模型 |
+| Persona / 人设 | Edit IDENTITY.md & SOUL.md, one-click AI generation / 编辑人设文件、一键AI生成 |
 
-## Custom VRM Models
-
-Built-in models are bundled with the app. You can import your own `.vrm` models via Settings > Model > Import. Custom models are stored in the workspace `models/` directory.
-
-## Architecture
+## Architecture / 架构
 
 ```
 claw-sama/
-├── index.ts              # OpenClaw plugin backend
+├── index.ts              # OpenClaw plugin backend / 插件后端
 ├── app/
-│   ├── src/              # React + Three.js frontend
+│   ├── src/              # React + Three.js frontend / 前端
 │   │   ├── components/   # VRMScene, TextBubble, ChatInput, SettingsPanel
-│   │   ├── emote.ts      # Emotion/expression controller
-│   │   └── lip-sync.ts   # Audio-driven lip sync
-│   ├── public/           # VRM models & animations
-│   └── src-tauri/        # Tauri desktop shell
+│   │   ├── emote.ts      # Emotion controller / 表情控制器
+│   │   └── lip-sync.ts   # Audio-driven lip sync / 口型同步
+│   ├── public/           # VRM models & animations / 模型和动画
+│   └── src-tauri/        # Tauri desktop shell / 桌面外壳
 └── package.json
 ```
 
-## Tech Stack
+## Tech Stack / 技术栈
 
-- **Frontend**: React, Three.js, [@pixiv/three-vrm](https://github.com/pixiv/three-vrm)
-- **Desktop**: [Tauri](https://tauri.app/)
-- **Backend**: OpenClaw plugin SDK (Node.js)
-- **AI**: LLM via OpenClaw runtime (supports multiple providers)
-- **TTS**: Edge TTS / Qwen TTS
+- **Frontend / 前端**: React, Three.js, [@pixiv/three-vrm](https://github.com/pixiv/three-vrm)
+- **Desktop / 桌面**: [Tauri](https://tauri.app/)
+- **Backend / 后端**: OpenClaw plugin SDK (Node.js)
+- **AI**: LLM via OpenClaw runtime (supports multiple providers / 支持多种模型)
+- **TTS / 语音合成**: Edge TTS / Qwen TTS
 
-## Acknowledgments
+## Acknowledgments / 致谢
 
 - Inspired by [AIRI](https://github.com/moeru-ai/airi) — an AI companion project by moeru-ai
 
-## License
+## License / 许可
 
 MIT
