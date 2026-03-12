@@ -57,7 +57,7 @@ Claw Sama 是一个基于 [OpenClaw](https://github.com/anthropics/openclaw) 插
 - **Debugging a React component?** She notices you've been stuck for a while and suggests taking a break
 - **Watching a movie on Bilibili?** She comments on the plot twist she just saw
 - **Reading documentation?** She quietly cheers you on: "You got this!"
-- 通过屏幕观察识别你的行为，然后主动跟你聊
+- 通过屏幕观察感知你正在做的事，像真正的伙伴一样自然地融入你的日常
 - **在打杀戮尖塔？** 她会帮你分析卡组搭配，提醒你小心精英怪
 - **调试 React 组件？** 她发现你卡了好一会儿，建议你起来活动活动
 - **在 B 站看电影？** 她会吐槽刚才的剧情反转
