@@ -243,7 +243,7 @@ const boxStyle: React.CSSProperties = {
 
 const textStyle: React.CSSProperties = {
   color: '#fff',
-  fontSize: 18,
+  fontSize: 22,
   lineHeight: 1.6,
   wordBreak: 'break-word',
   fontFamily: '"Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif',

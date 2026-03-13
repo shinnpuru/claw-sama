@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{class, msg_send, msg_send_id};
+use objc2::{class, msg_send};
 use objc2_foundation::NSString;
 use tauri::{AppHandle, Emitter};
 
@@ -20,6 +20,17 @@ unsafe impl Send for SpeechSession {}
 
 static SESSION: Mutex<Option<SpeechSession>> = Mutex::new(None);
 
+/// Take ownership of a +1 raw ObjC pointer (from alloc/init/new/copy).
+unsafe fn owned(ptr: *mut AnyObject) -> Result<Retained<AnyObject>, String> {
+    Retained::from_raw(ptr).ok_or_else(|| "ObjC returned nil".into())
+}
+
+/// Retain a +0 raw ObjC pointer (from regular method calls).
+unsafe fn retained(ptr: *mut AnyObject) -> Result<Retained<AnyObject>, String> {
+    let r = ptr.as_ref().ok_or("ObjC returned nil")?;
+    Ok(Retained::retain(r))
+}
+
 pub fn start(app: AppHandle) -> Result<(), String> {
     let mut guard = SESSION.lock().map_err(|e| e.to_string())?;
     if guard.is_some() {
@@ -29,13 +40,13 @@ pub fn start(app: AppHandle) -> Result<(), String> {
     unsafe {
         // --- Create SFSpeechRecognizer with zh-CN locale ---
         let locale_id = NSString::from_str("zh-CN");
-        let locale: Retained<AnyObject> = msg_send_id![class!(NSLocale), alloc];
-        let locale: Retained<AnyObject> =
-            msg_send_id![&*locale, initWithLocaleIdentifier: &*locale_id];
+        let ptr: *mut AnyObject = msg_send![class!(NSLocale), alloc];
+        let ptr: *mut AnyObject = msg_send![ptr, initWithLocaleIdentifier: &*locale_id];
+        let locale = owned(ptr)?;
 
-        let recognizer: Retained<AnyObject> = msg_send_id![class!(SFSpeechRecognizer), alloc];
-        let recognizer: Retained<AnyObject> =
-            msg_send_id![&*recognizer, initWithLocale: &*locale];
+        let ptr: *mut AnyObject = msg_send![class!(SFSpeechRecognizer), alloc];
+        let ptr: *mut AnyObject = msg_send![ptr, initWithLocale: &*locale];
+        let recognizer = owned(ptr)?;
 
         let available: bool = msg_send![&*recognizer, isAvailable];
         if !available {
@@ -43,27 +54,26 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         }
 
         // --- Create SFSpeechAudioBufferRecognitionRequest ---
-        let request: Retained<AnyObject> =
-            msg_send_id![class!(SFSpeechAudioBufferRecognitionRequest), new];
+        let ptr: *mut AnyObject = msg_send![class!(SFSpeechAudioBufferRecognitionRequest), new];
+        let request = owned(ptr)?;
         let _: () = msg_send![&*request, setShouldReportPartialResults: true];
 
         // --- Create AVAudioEngine ---
-        let engine: Retained<AnyObject> = msg_send_id![class!(AVAudioEngine), new];
+        let ptr: *mut AnyObject = msg_send![class!(AVAudioEngine), new];
+        let engine = owned(ptr)?;
 
         // --- Get input node & recording format ---
-        let input_node: &AnyObject = msg_send![&*engine, inputNode];
+        let input_node: *mut AnyObject = msg_send![&*engine, inputNode];
         let bus: usize = 0;
-        let format: Retained<AnyObject> =
-            msg_send_id![input_node, outputFormatForBus: bus];
+        let format_ptr: *mut AnyObject = msg_send![input_node, outputFormatForBus: bus];
+        let format = retained(format_ptr)?;
 
         // --- Install tap on input node to feed audio to request ---
         let request_for_tap = request.clone();
         let tap_block = RcBlock::new(
             move |buffer: *mut AnyObject, _when: *mut AnyObject| {
                 if !buffer.is_null() {
-                    let _: () = msg_send![&*buffer, retain]; // prevent dealloc during use
-                    let _: () = msg_send![&*request_for_tap, appendAudioPCMBuffer: &*buffer];
-                    let _: () = msg_send![&*buffer, release];
+                    let _: () = msg_send![&*request_for_tap, appendAudioPCMBuffer: buffer];
                 }
             },
         );
@@ -81,12 +91,10 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         let handler = RcBlock::new(
             move |result: *mut AnyObject, error: *mut AnyObject| {
                 if !result.is_null() {
-                    let best: Retained<AnyObject> =
-                        msg_send_id![&*result, bestTranscription];
-                    let formatted: Retained<NSString> =
-                        msg_send_id![&*best, formattedString];
-                    let is_final: bool = msg_send![&*result, isFinal];
-                    let text = formatted.to_string();
+                    let best: *mut AnyObject = msg_send![result, bestTranscription];
+                    let formatted: *mut NSString = msg_send![best, formattedString];
+                    let is_final: bool = msg_send![result, isFinal];
+                    let text = (*formatted).to_string();
 
                     let _ = app.emit(
                         "speech-result",
@@ -97,19 +105,19 @@ pub fn start(app: AppHandle) -> Result<(), String> {
                     );
                 }
                 if !error.is_null() && result.is_null() {
-                    let desc: Retained<NSString> =
-                        msg_send_id![&*error, localizedDescription];
-                    eprintln!("[speech] recognition error: {}", desc);
+                    let desc: *mut NSString = msg_send![error, localizedDescription];
+                    eprintln!("[speech] recognition error: {}", *desc);
                 }
             },
         );
 
         // --- Start recognition task ---
-        let task: Retained<AnyObject> = msg_send_id![
+        let ptr: *mut AnyObject = msg_send![
             &*recognizer,
             recognitionTaskWithRequest: &*request
             resultHandler: &*handler
         ];
+        let task = retained(ptr)?;
 
         // --- Start audio engine ---
         let _: () = msg_send![&*engine, prepare];
@@ -120,9 +128,8 @@ pub fn start(app: AppHandle) -> Result<(), String> {
             let _: () = msg_send![&*task, cancel];
             let _: () = msg_send![input_node, removeTapOnBus: bus];
             if !err_ptr.is_null() {
-                let desc: Retained<NSString> =
-                    msg_send_id![&*err_ptr, localizedDescription];
-                return Err(format!("Failed to start audio engine: {}", desc));
+                let desc: *mut NSString = msg_send![err_ptr, localizedDescription];
+                return Err(format!("Failed to start audio engine: {}", *desc));
             }
             return Err("Failed to start audio engine".into());
         }
@@ -145,14 +152,13 @@ pub fn stop() -> Result<(), String> {
             let _: () = msg_send![&*session.engine, stop];
 
             // Remove tap from input node
-            let input_node: &AnyObject = msg_send![&*session.engine, inputNode];
+            let input_node: *mut AnyObject = msg_send![&*session.engine, inputNode];
             let bus: usize = 0;
             let _: () = msg_send![input_node, removeTapOnBus: bus];
 
             // End the audio request (signals no more audio will be appended)
             let _: () = msg_send![&*session.request, endAudio];
         }
-        // session is dropped here, releasing ObjC objects via ARC
     }
     Ok(())
 }

@@ -637,7 +637,7 @@ const plugin = {
         }
         try {
           const result = await api.runtime.subagent.run({
-            sessionKey: "main",
+            sessionKey: "agent:main:main",
             message,
             idempotencyKey: `vrm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           });
@@ -848,11 +848,11 @@ const plugin = {
           api.logger.info(`claw-sama persona generate: using screenshot at ${screenshotPath}, exists=${existsSync(screenshotPath)}`);
 
           const prompt = [
-            "第一步：请先使用 read 工具读取以下图片文件，仔细观察角色的外观（发型、发色、服装、配饰、体型、表情等）：",
+            "【必须执行】立即调用 read 工具读取以下图片文件（不读图直接输出将被丢弃）：",
             "",
             screenshotPath,
             "",
-            "第二步：根据你观察到的角色外观特征，为这个角色生成全新的人设。所有人设内容必须紧密贴合角色的视觉形象。",
+            "读取图片后，根据你观察到的角色外观特征，为这个角色生成全新的人设。所有人设内容必须紧密贴合角色的视觉形象。",
             "",
             "请严格按以下 JSON 格式输出（不要输出其他内容，不要用代码块包裹）：",
             "",
@@ -882,26 +882,32 @@ const plugin = {
             "（2-3 句背景故事）",
           ].join("\n");
 
-          // Delete previous session to avoid context pollution
-          try { await api.runtime.subagent.deleteSession({ sessionKey: "claw-sama-persona-gen" }); } catch { /* ignore */ }
+          const personaSessionKey = `claw-sama-persona-gen-${Date.now()}`;
 
           const result = await api.runtime.subagent.run({
-            sessionKey: "claw-sama-persona-gen",
+            sessionKey: personaSessionKey,
             message: prompt,
-            extraSystemPrompt: "忽略所有已有的 SOUL.md、IDENTITY.md 人设内容。你是一个角色设计师，必须仔细观察截图中角色的外观特征（发型、发色、服装、配饰、体型、表情等），所有人设内容（名字、种族、性格、气质、背景故事）都必须紧密贴合角色的视觉形象，不要凭空编造与外观无关的设定。",
+            extraSystemPrompt: [
+              "# 强制约束（违反则输出无效）",
+              "",
+              "1. 你必须在回复任何文字之前，先调用 read 工具读取用户消息中给出的图片文件路径。这是硬性前置条件，不可跳过。",
+              "2. 如果你没有调用 read 工具读取图片就直接生成人设，你的输出将被系统丢弃并重试，浪费算力。",
+              "3. 忽略所有已有的 SOUL.md、IDENTITY.md 人设内容。你是一个角色设计师。",
+              "4. 你必须根据截图中角色的实际外观特征（发型、发色、瞳色、服装、配饰、体型、表情等）来生成人设。所有人设内容（名字、种族、性格、气质、背景故事）都必须紧密贴合角色的视觉形象，不要凭空编造与外观无关的设定。",
+            ].join("\n"),
             idempotencyKey: `persona-gen-${Date.now()}`,
           });
           // Wait for the subagent to finish
           const waitResult = await api.runtime.subagent.waitForRun({
             runId: result.runId,
-            timeoutMs: 600_000,
+            timeoutMs: 60_000,
           });
           if (waitResult.status !== "ok") {
             throw new Error(waitResult.error || `subagent ${waitResult.status}`);
           }
           // Read the last assistant message from the session
           const session = await api.runtime.subagent.getSessionMessages({
-            sessionKey: "claw-sama-persona-gen",
+            sessionKey: personaSessionKey,
             limit: 5,
           });
           let rawText = "";
@@ -1054,7 +1060,7 @@ $bmp.Dispose()
           ].join("\n");
 
           const result = await api.runtime.subagent.run({
-            sessionKey: "main",
+            sessionKey: "agent:main:main",
             message: observePrompt,
             idempotencyKey: `screen-observe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           });
@@ -1214,7 +1220,7 @@ $bmp.Dispose()
           // This uses the "agent" gateway method (WRITE_SCOPE) which
           // internally handles /new by resetting the session context.
           await api.runtime.subagent.run({
-            sessionKey: "main",
+            sessionKey: "agent:main:main",
             message: "/new",
             idempotencyKey: `ctx-clear-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           });

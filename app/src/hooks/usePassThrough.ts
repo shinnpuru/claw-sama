@@ -57,8 +57,21 @@ export function usePassThrough(enabled: boolean) {
         return
       }
 
-      const clientX = x - window_x
-      const clientY = y - window_y
+      // Normalize to 0..1 using same-unit values from Rust (works whether
+      // coords are physical or CSS pixels), then convert to CSS pixels.
+      const relX = (x - window_x) / window_w
+      const relY = (y - window_y) / window_h
+      const clientX = relX * window.innerWidth
+      const clientY = relY * window.innerHeight
+
+      // While a drag operation is in progress, keep pass-through disabled
+      if ((window as any).__clawDragging) {
+        if (passingThrough.current) {
+          passingThrough.current = false
+          win.setIgnoreCursorEvents(false).catch(() => {})
+        }
+        return
+      }
 
       // Check if cursor is over an interactive HTML element (buttons, inputs, etc.)
       const el = document.elementFromPoint(clientX, clientY)

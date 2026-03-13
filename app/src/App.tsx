@@ -253,6 +253,7 @@ export default function App() {
           <button
             onMouseDown={(e) => {
               e.preventDefault()
+              ;(window as any).__clawDragging = true
               let lastX = e.clientX
               let lastY = e.clientY
               const onMove = (ev: MouseEvent) => {
@@ -261,6 +262,7 @@ export default function App() {
                 lastY = ev.clientY
               }
               const onUp = () => {
+                ;(window as any).__clawDragging = false
                 window.removeEventListener('mousemove', onMove)
                 window.removeEventListener('mouseup', onUp)
               }
@@ -275,6 +277,7 @@ export default function App() {
           <button
             onMouseDown={(e) => {
               e.preventDefault()
+              ;(window as any).__clawDragging = true
               let lastX = e.clientX
               let lastY = e.clientY
               const onMove = (ev: MouseEvent) => {
@@ -283,6 +286,7 @@ export default function App() {
                 lastY = ev.clientY
               }
               const onUp = () => {
+                ;(window as any).__clawDragging = false
                 window.removeEventListener('mousemove', onMove)
                 window.removeEventListener('mouseup', onUp)
               }

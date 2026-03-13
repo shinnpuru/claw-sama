@@ -59,15 +59,19 @@ async fn start_cursor_monitor(window: tauri::Window) -> Result<(), String> {
                         continue;
                     }
 
+                    // Convert physical pixels → logical (CSS) pixels to match
+                    // elementFromPoint / hit-test expectations (same as macOS path).
+                    let scale = window.scale_factor().unwrap_or(1.0);
+
                     let _ = window.emit(
                         "cursor-position",
                         CursorPosition {
-                            x: cursor.x,
-                            y: cursor.y,
-                            window_x: rect.left,
-                            window_y: rect.top,
-                            window_w: (rect.right - rect.left) as u32,
-                            window_h: (rect.bottom - rect.top) as u32,
+                            x: (cursor.x as f64 / scale) as i32,
+                            y: (cursor.y as f64 / scale) as i32,
+                            window_x: (rect.left as f64 / scale) as i32,
+                            window_y: (rect.top as f64 / scale) as i32,
+                            window_w: ((rect.right - rect.left) as f64 / scale) as u32,
+                            window_h: ((rect.bottom - rect.top) as f64 / scale) as u32,
                         },
                     );
                 }
