@@ -27,8 +27,7 @@ unsafe fn owned(ptr: *mut AnyObject) -> Result<Retained<AnyObject>, String> {
 
 /// Retain a +0 raw ObjC pointer (from regular method calls).
 unsafe fn retained(ptr: *mut AnyObject) -> Result<Retained<AnyObject>, String> {
-    let r = ptr.as_ref().ok_or("ObjC returned nil")?;
-    Ok(Retained::retain(r))
+    Retained::retain(ptr).ok_or_else(|| "ObjC returned nil".into())
 }
 
 pub fn start(app: AppHandle) -> Result<(), String> {
