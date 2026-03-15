@@ -22,6 +22,8 @@ interface SettingsPanelProps {
   onUiAlignChange: (v: 'left' | 'right') => void
   screenObserve: boolean
   onScreenObserveChange: (v: boolean) => void
+  screenObserveInterval: number
+  onScreenObserveIntervalChange: (v: number) => void
   /** Return a data URL screenshot of the current VRM canvas */
   captureVrmScreenshot?: () => string | null
 }
@@ -85,6 +87,7 @@ export function SettingsPanel({
   volume, onVolumeChange,
   uiAlign, onUiAlignChange,
   screenObserve, onScreenObserveChange,
+  screenObserveInterval, onScreenObserveIntervalChange,
   captureVrmScreenshot,
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<Tab>('general')
@@ -310,7 +313,6 @@ export function SettingsPanel({
         <div style={contentStyle}>
           {tab === 'general' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <ToggleRow label="隐藏UI" value={hideUI} onChange={onHideUIChange} />
               <ToggleRow label="显示字幕" value={showText} onChange={onShowTextChange} />
               <ToggleRow label="语音播报" value={ttsEnabled} onChange={onTtsEnabledChange} />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -363,11 +365,26 @@ export function SettingsPanel({
                   ))}
                 </div>
               </div>
+              <ToggleRow label="隐藏UI" value={hideUI} onChange={onHideUIChange} />
               <ToggleRow label="屏幕观察" value={screenObserve} onChange={onScreenObserveChange} />
               {screenObserve && (
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: -8 }}>
-                  每分钟截取屏幕，AI 会根据你在做什么主动跟你互动
-                </div>
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: -8 }}>
+                    <span style={{ fontSize: 14 }}>观察间隔</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="range"
+                        min={15}
+                        max={300}
+                        step={15}
+                        value={screenObserveInterval}
+                        onChange={(e) => onScreenObserveIntervalChange(Number(e.target.value))}
+                        style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
+                      />
+                      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 36, textAlign: 'right' }}>{screenObserveInterval}s</span>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}

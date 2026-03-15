@@ -144,6 +144,10 @@ export class LipSync {
       const to = target[key]
       const rate = 1 - Math.exp(-(to > from ? ATTACK : RELEASE) * delta)
       this.smoothState[key] = from + (to - from) * rate
+
+      // When fully silent and decayed, skip writing so emote can control mouth morphs
+      if (silent && this.smoothState[key] <= 0.01) continue
+
       const weight = (this.smoothState[key] <= 0.01 ? 0 : this.smoothState[key]) * 0.7
       vrm.expressionManager.setValue(BLENDSHAPE_MAP[key], weight)
     }

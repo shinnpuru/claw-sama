@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { VRMScene } from './components/VRMScene'
-import type { VRMSceneHandle } from './components/VRMScene'
+import type { VRMSceneHandle, TouchRegion } from './components/VRMScene'
 import { TextBubble } from './components/TextBubble'
 import type { OnVrmMessage } from './components/TextBubble'
 import { ChatInput } from './components/ChatInput'
@@ -11,10 +11,15 @@ import { LipSync } from './lip-sync'
 import { bindScene } from './api'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
-import { Menu, Pin, Move, RotateCcw, Rotate3D, EyeOff, Settings, Trash2 } from 'lucide-react'
+import { HistoryPanel } from './components/HistoryPanel'
+import { Menu, Pin, Move, RotateCcw, Rotate3D, EyeOff, Settings } from 'lucide-react'
 
 const DEFAULT_MODEL = '/model1.vrm'
 const OPENCLAW_URL = 'http://127.0.0.1:18789'
+
+// Module-level to survive any component remount
+let lastTouchChatTime = 0
+const TOUCH_CHAT_COOLDOWN = 30_000
 
 // 情绪 → 动作映射
 const emotionActionMap: Record<string, string> = {
@@ -50,15 +55,17 @@ export default function App() {
   const [tracking, setTracking] = useState<'mouse' | 'camera'>('mouse')
   const [showText, setShowText] = useState(true)
   const [collapsed, setCollapsed] = useState(false)
-  const [chatHasText, setChatHasText] = useState(false)
+
   const [ttsEnabled, setTtsEnabled] = useState(true)
   const [modelPath, setModelPath] = useState(DEFAULT_MODEL)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [hideUI, setHideUI] = useState(false)
   const [volume, setVolume] = useState(1)
   const [uiAlign, setUiAlign] = useState<'left' | 'right'>('right')
   const [screenObserve, setScreenObserve] = useState(false)
-  usePassThrough(!settingsOpen)
+  const [screenObserveInterval, setScreenObserveInterval] = useState(60)
+  usePassThrough(!settingsOpen && !historyOpen)
 
   // Load persisted settings on mount
   useEffect(() => {
@@ -73,6 +80,7 @@ export default function App() {
         if (s.volume !== undefined) { setVolume(s.volume); LipSync.getInstance().setVolume(s.volume) }
         if (s.uiAlign) setUiAlign(s.uiAlign)
         if (s.screenObserve !== undefined) setScreenObserve(s.screenObserve)
+        if (s.screenObserveInterval !== undefined) setScreenObserveInterval(s.screenObserveInterval)
       })
       .catch(() => {})
   }, [])
@@ -153,28 +161,89 @@ export default function App() {
     return () => clearInterval(timer)
   }, [])
 
-  // ── Screen observation: capture desktop & send to LLM every 60s ─────────
+  // ── Screen observation: capture desktop & send to LLM periodically ─────────
   useEffect(() => {
     if (!screenObserve) return
-    const OBSERVE_INTERVAL_MS = 60_000
+    const intervalMs = screenObserveInterval * 1000
 
     const doObserve = () => {
       fetch(`${OPENCLAW_URL}/plugins/claw-sama/screen/observe`, { method: 'POST' })
         .catch(() => {})
     }
 
-    const timer = setInterval(doObserve, OBSERVE_INTERVAL_MS)
+    const timer = setInterval(doObserve, intervalMs)
     // Also fire once immediately on enable
     doObserve()
 
     return () => clearInterval(timer)
-  }, [screenObserve])
+  }, [screenObserve, screenObserveInterval])
 
   const clearContext = async () => {
     try {
       await fetch(`${OPENCLAW_URL}/plugins/claw-sama/context/clear`, { method: 'POST' })
     } catch { /* ignore */ }
   }
+
+  // 全局快捷键: Tab 展开/折叠菜单
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        setCollapsed((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  // ── Touch interaction: immediate reaction + verbal response ──────────
+  const touchVisuals: Record<TouchRegion, { emotion: string; action?: string }> = {
+    head:  { emotion: 'happy',     action: 'stretch' },
+    body:  { emotion: 'surprised', action: 'playFingers' },
+    hand:  { emotion: 'happy',     action: 'playFingers' },
+    leg:   { emotion: 'awkward',   action: 'playFingers' },
+  }
+
+  // Track touch counts per region within the cooldown window
+  const touchCountsRef = useRef<Record<string, number>>({})
+
+  const regionLabels: Record<TouchRegion, string> = {
+    head: '头', body: '身体', hand: '手', leg: '腿',
+  }
+
+  const handleTouch = useCallback((region: TouchRegion) => {
+    const visual = touchVisuals[region]
+    if (!visual) return
+
+    // Immediate visual feedback (always)
+    lastActivityRef.current = Date.now()
+    sceneRef.current?.setEmotionWithReset(visual.emotion, 3000, 0.8)
+    if (visual.action) sceneRef.current?.playAction(visual.action)
+
+    // Accumulate touch counts
+    touchCountsRef.current[region] = (touchCountsRef.current[region] || 0) + 1
+
+    // Send to backend for verbal response (rate-limited, module-level cooldown)
+    const now = Date.now()
+    if (now - lastTouchChatTime > TOUCH_CHAT_COOLDOWN) {
+      lastTouchChatTime = now
+
+      // Build summary prompt from accumulated counts
+      const parts = Object.entries(touchCountsRef.current)
+        .filter(([, count]) => count > 0)
+        .map(([r, count]) => `${regionLabels[r as TouchRegion]}${count}次`)
+      const summary = parts.join('、')
+      const prompt = `[用户摸了你的${summary}]`
+      touchCountsRef.current = {}
+
+      fetch(`${OPENCLAW_URL}/plugins/claw-sama/touch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ region, prompt }),
+      }).catch(() => {})
+    }
+  }, [])
 
   const togglePin = async () => {
     const win = getCurrentWindow()
@@ -194,9 +263,13 @@ export default function App() {
       }}
     >
       <ResizeHandles />
-      <VRMScene ref={sceneRef} modelPath={modelPath} />
-      <TextBubble onMessage={handleVrmMessageWithActivity} enabled={showText} chatHasText={chatHasText} ttsEnabled={ttsEnabled} />
-      {!hideUI && <ChatInput onActiveChange={setChatHasText} uiAlign={uiAlign} />}
+      <VRMScene ref={sceneRef} modelPath={modelPath} onTouch={handleTouch} />
+      <TextBubble onMessage={handleVrmMessageWithActivity} enabled={showText} ttsEnabled={ttsEnabled} />
+      {!hideUI && <ChatInput uiAlign={uiAlign} onHistoryOpen={() => setHistoryOpen(true)} onNewSession={clearContext} />}
+      <HistoryPanel
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
       <SettingsPanel
         visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -216,6 +289,8 @@ export default function App() {
         onUiAlignChange={(v) => { setUiAlign(v); saveSettings({ uiAlign: v }) }}
         screenObserve={screenObserve}
         onScreenObserveChange={(v) => { setScreenObserve(v); saveSettings({ screenObserve: v }) }}
+        screenObserveInterval={screenObserveInterval}
+        onScreenObserveIntervalChange={(v) => { setScreenObserveInterval(v); saveSettings({ screenObserveInterval: v }) }}
         captureVrmScreenshot={() => sceneRef.current?.captureScreenshot() ?? null}
       />
       {!hideUI && <div
@@ -231,11 +306,18 @@ export default function App() {
         <button
           onClick={() => setCollapsed((v) => !v)}
           style={btnStyle}
-          title={collapsed ? '展开菜单' : '折叠菜单'}
+          title={collapsed ? '展开菜单 (Tab)' : '折叠菜单 (Tab)'}
         >
           <Menu size={16} />
         </button>
         {!collapsed && <>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            style={btnStyle}
+            title="设置"
+          >
+            <Settings size={16} />
+          </button>
           <button
             onClick={() => getCurrentWindow().hide()}
             style={btnStyle}
@@ -304,20 +386,6 @@ export default function App() {
             title="重置视角"
           >
             <RotateCcw size={16} />
-          </button>
-          <button
-            onClick={clearContext}
-            style={btnStyle}
-            title="清理对话上下文"
-          >
-            <Trash2 size={16} />
-          </button>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            style={btnStyle}
-            title="设置"
-          >
-            <Settings size={16} />
           </button>
         </>}
       </div>}

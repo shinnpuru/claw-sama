@@ -1,34 +1,60 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { MessageCircle, Send, X, Loader, Mic, ChevronDown } from 'lucide-react'
+import { MessageCircle, Send, Loader, Mic, ChevronDown, History, SquarePen, Plus } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 const OPENCLAW_URL = 'http://127.0.0.1:18789/plugins/claw-sama/chat'
 
+// Inject input bar animation keyframes once
+const INPUT_STYLE_ID = 'claw-input-keyframes'
+if (!document.getElementById(INPUT_STYLE_ID)) {
+  const style = document.createElement('style')
+  style.id = INPUT_STYLE_ID
+  style.textContent = `
+    @keyframes claw-input-slide-up {
+      0% { opacity: 0; transform: translateY(20px) scale(0.95); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes claw-input-slide-down {
+      0% { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(20px) scale(0.95); }
+    }
+  `
+  document.head.appendChild(style)
+}
+
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 const USE_NATIVE_STT = !SpeechRecognition
 
-export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right' }: { visible?: boolean; onActiveChange?: (hasText: boolean) => void; uiAlign?: 'left' | 'right' }) {
+export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', onHistoryOpen, onNewSession }: { visible?: boolean; onActiveChange?: (hasText: boolean) => void; uiAlign?: 'left' | 'right'; onHistoryOpen?: () => void; onNewSession?: () => void }) {
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const recognitionRef = useRef<any>(null)
   const unlistenRef = useRef<UnlistenFn | null>(null)
+
+  const closeBar = useCallback(() => {
+    if (closing) return
+    setClosing(true)
+    setTimeout(() => { setOpen(false); setClosing(false) }, 220)
+  }, [closing])
 
   const send = useCallback(async (msg?: string) => {
     const finalMsg = (msg ?? text).trim()
     if (!finalMsg || sending) return
     setSending(true)
+    setText('')
+    onActiveChange?.(false)
     try {
       await fetch(OPENCLAW_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: finalMsg }),
       })
-      setText('')
-      onActiveChange?.(false)
     } catch (err) {
       console.error('Failed to send message:', err)
     } finally {
@@ -119,8 +145,14 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right' }:
       send()
     }
     if (e.key === 'Escape') {
-      setOpen(false)
+      closeBar()
     }
+    if ((e.key === 'Delete') || (e.key === 'd' && e.ctrlKey)) {
+      e.preventDefault()
+      setText('')
+      onActiveChange?.(false)
+    }
+
   }
 
   // 全局快捷键
@@ -138,22 +170,20 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right' }:
         setTimeout(() => inputRef.current?.focus(), 50)
       }
 
-      // Delete: 清空输入框
-      if (e.key === 'Delete' && open) {
+      // Escape: 收起输入框
+      if (e.key === 'Escape' && open && !inInput) {
         e.preventDefault()
-        setText('')
-        onActiveChange?.(false)
-        inputRef.current?.focus()
+        closeBar()
       }
 
-      // F10: 按住说话
-      if (e.key === 'F10' && !recording) {
+      // F2: 按住说话
+      if (e.key === 'F2' && !recording) {
         e.preventDefault()
         startRecording()
       }
     }
     const onGlobalKeyUp = (e: KeyboardEvent) => {
-      if (recording && e.key === 'F10') {
+      if (recording && e.key === 'F2') {
         stopRecording()
       }
     }
@@ -163,22 +193,13 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right' }:
       window.removeEventListener('keydown', onGlobalKeyDown)
       window.removeEventListener('keyup', onGlobalKeyUp)
     }
-  }, [open, visible, recording, startRecording, stopRecording])
+  }, [open, visible, recording, startRecording, stopRecording, closeBar])
 
   if (!visible) return null
 
   if (!open) {
     return (
-      <div style={{ position: 'absolute', bottom: 12, ...(uiAlign === 'left' ? { left: 12 } : { right: 12 }), display: 'flex', flexDirection: 'column', gap: 4, zIndex: 200, pointerEvents: 'auto' }}>
-        <button
-          onMouseDown={startRecording}
-          onMouseUp={stopRecording}
-          onMouseLeave={handleMouseLeave}
-          style={{ ...fabStyle, background: recording ? 'rgba(255, 80, 80, 0.6)' : fabStyle.background }}
-          title="按住说话 (F10)"
-        >
-          <Mic size={16} />
-        </button>
+      <div style={{ position: 'absolute', bottom: 12, ...(uiAlign === 'left' ? { left: 12 } : { right: 12 }), zIndex: 300, pointerEvents: 'auto' }}>
         <button
           onClick={() => {
             setOpen(true)
@@ -194,20 +215,37 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right' }:
   }
 
   return (
-    <>
-    <div style={{ position: 'absolute', bottom: 56, ...(uiAlign === 'left' ? { left: 12 } : { right: 12 }), zIndex: 200, pointerEvents: 'auto' }}>
-      <button
-        onMouseDown={startRecording}
-        onMouseUp={stopRecording}
-        onMouseLeave={handleMouseLeave}
-        style={{ ...fabStyle, background: recording ? 'rgba(255, 80, 80, 0.6)' : fabStyle.background }}
-        title="按住说话 (F10)"
-      >
-        <Mic size={16} />
-      </button>
-    </div>
-    <div style={barStyle}>
+    <div
+      key={closing ? 'closing' : 'open'}
+      style={{
+        ...barStyle,
+        animation: closing
+          ? 'claw-input-slide-down 0.2s ease-in forwards'
+          : 'claw-input-slide-up 0.25s ease-out both',
+      }}
+    >
       <div style={{ flex: 1, position: 'relative' }}>
+        {/* 左侧 + 号按钮 */}
+        <button
+          onClick={() => setMenuOpen((v) => !v)}
+          style={{ ...inlineBtnLeft, color: menuOpen ? 'rgba(100, 160, 255, 0.9)' : 'rgba(255, 255, 255, 0.45)' }}
+          title="更多"
+        >
+          <Plus size={20} />
+        </button>
+        {/* 弹出菜单 */}
+        {menuOpen && (
+          <div style={popupMenuStyle}>
+            <button onClick={() => { setMenuOpen(false); onHistoryOpen?.() }} style={popupItemStyle}>
+              <History size={14} />
+              <span>对话历史</span>
+            </button>
+            <button onClick={() => { setMenuOpen(false); onNewSession?.() }} style={popupItemStyle}>
+              <SquarePen size={14} />
+              <span>新会话</span>
+            </button>
+          </div>
+        )}
         <input
           ref={inputRef}
           value={text}
@@ -216,29 +254,31 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right' }:
             onActiveChange?.(e.target.value.length > 0)
           }}
           onKeyDown={handleKeyDown}
-          placeholder=""
+          placeholder={sending ? '思考中...' : ''}
           disabled={sending}
-          style={{ ...inputStyle, paddingRight: text.trim() ? 28 : 10 }}
+          style={{ ...inputStyle, paddingLeft: 48, paddingRight: 80 }}
           autoFocus
         />
-        {text.trim() && (
-          <button
-            onClick={() => { setText(''); onActiveChange?.(false); inputRef.current?.focus() }}
-            style={clearBtnStyle}
-            title="清空 (Delete)"
-          >
-            <X size={12} />
-          </button>
-        )}
+        {/* 右侧：发送/收起 */}
+        <button
+          onMouseDown={startRecording}
+          onMouseUp={stopRecording}
+          onMouseLeave={handleMouseLeave}
+          style={{ ...inlineBtnRight, right: 44, color: recording ? 'rgba(255, 80, 80, 0.9)' : 'rgba(255, 255, 255, 0.45)' }}
+          title="按住说话 (F2)"
+        >
+          <Mic size={20} />
+        </button>
+        <button
+          onClick={() => text.trim() ? send() : closeBar()}
+          disabled={sending}
+          style={{ ...inlineBtnRight, right: 12, color: text.trim() ? 'rgba(100, 160, 255, 0.9)' : 'rgba(255, 255, 255, 0.45)' }}
+          title={text.trim() ? '发送 (Enter)' : '收起 (Esc)'}
+        >
+          {sending ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : text.trim() ? <Send size={18} /> : <ChevronDown size={20} />}
+        </button>
       </div>
-      <button onClick={() => send()} disabled={sending || !text.trim()} style={sendBtnStyle} title="发送 (Enter)">
-        {sending ? <Loader size={16} /> : <Send size={14} />}
-      </button>
-      <button onClick={() => setOpen(false)} style={closeBtnStyle} title="收起">
-        <ChevronDown size={16} />
-      </button>
     </div>
-    </>
   )
 }
 
@@ -255,7 +295,7 @@ const fabStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  zIndex: 200,
+  zIndex: 300,
   pointerEvents: 'auto',
 }
 
@@ -266,69 +306,88 @@ const barStyle: React.CSSProperties = {
   right: 12,
   display: 'flex',
   gap: 4,
-  zIndex: 200,
+  zIndex: 300,
   pointerEvents: 'auto',
-}
-
-const clearBtnStyle: React.CSSProperties = {
-  position: 'absolute',
-  right: 4,
-  top: '50%',
-  transform: 'translateY(-50%)',
-  width: 20,
-  height: 20,
-  border: 'none',
-  borderRadius: 4,
-  background: 'rgba(255, 255, 255, 0.15)',
-  color: 'rgba(255, 255, 255, 0.6)',
-  cursor: 'pointer',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 0,
 }
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  height: 32,
+  height: 50,
   boxSizing: 'border-box' as const,
   border: '1px solid rgba(255, 255, 255, 0.2)',
-  borderRadius: 6,
+  borderRadius: 25,
   background: 'rgba(0, 0, 0, 0.4)',
   backdropFilter: 'blur(6px)',
   color: '#fff',
-  fontSize: 14,
+  fontSize: 18,
   padding: '0 10px',
   outline: 'none',
   fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
 }
 
-const sendBtnStyle: React.CSSProperties = {
+const inlineBtnLeft: React.CSSProperties = {
+  position: 'absolute',
+  left: 12,
+  top: '50%',
+  transform: 'translateY(-50%)',
   width: 32,
   height: 32,
   border: 'none',
-  borderRadius: 6,
-  background: 'rgba(100, 160, 255, 0.5)',
-  backdropFilter: 'blur(6px)',
-  color: '#fff',
-  fontSize: 16,
+  borderRadius: 4,
+  background: 'transparent',
   cursor: 'pointer',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  padding: 0,
+  zIndex: 2,
 }
 
-const closeBtnStyle: React.CSSProperties = {
+const inlineBtnRight: React.CSSProperties = {
+  position: 'absolute',
+  top: '50%',
+  transform: 'translateY(-50%)',
   width: 32,
   height: 32,
   border: 'none',
-  borderRadius: 6,
-  background: 'rgba(125, 125, 125, 0.28)',
-  backdropFilter: 'blur(6px)',
-  color: 'rgba(255, 255, 255, 0.8)',
-  fontSize: 14,
+  borderRadius: 4,
+  background: 'transparent',
   cursor: 'pointer',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  padding: 0,
+  zIndex: 1,
+}
+
+const popupMenuStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 4,
+  bottom: '100%',
+  marginBottom: 6,
+  background: 'rgba(30, 30, 40, 0.95)',
+  backdropFilter: 'blur(12px)',
+  borderRadius: 10,
+  border: '1px solid rgba(255, 255, 255, 0.15)',
+  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
+  padding: 4,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  zIndex: 1000,
+}
+
+const popupItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '8px 14px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'rgba(255, 255, 255, 0.8)',
+  fontSize: 13,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
 }

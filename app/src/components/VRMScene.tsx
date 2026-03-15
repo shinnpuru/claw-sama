@@ -9,9 +9,12 @@ import { EmoteController } from '../emote'
 import { LipSync } from '../lip-sync'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
+export type TouchRegion = 'head' | 'body' | 'hand' | 'leg'
+
 interface VRMSceneProps {
   modelPath: string
   idleAnimationPath?: string
+  onTouch?: (region: TouchRegion) => void
 }
 
 export type TrackingMode = 'mouse' | 'camera'
@@ -187,6 +190,7 @@ function reAnchorRootPositionTrack(clip: THREE.AnimationClip, vrm: VRM) {
 export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMScene({
   modelPath,
   idleAnimationPath = '/idle_loop.vrma',
+  onTouch,
 }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const emoteRef = useRef<EmoteController | null>(null)
@@ -196,6 +200,8 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   const panCameraRef = useRef<((dx: number, dy: number) => void) | null>(null)
   const rotateCameraRef = useRef<((dx: number, dy: number) => void) | null>(null)
   const lipSyncRef = useRef<LipSync>(LipSync.getInstance())
+  const onTouchRef = useRef(onTouch)
+  onTouchRef.current = onTouch
 
   useImperativeHandle(ref, () => ({
     setEmotion(emotion: string, intensity?: number) {
@@ -548,9 +554,67 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
     const PAN_SPEED = 0.003
     const DOLLY_SPEED = 0.01
 
+    // ── Touch interaction: detect body region from raycast hit ────────────
+    const touchRaycaster = new THREE.Raycaster()
+    const touchMouseVec = new THREE.Vector2()
+    let lastTouchTime = 0
+
+    function detectTouchRegion(e: PointerEvent): TouchRegion | null {
+      if (!vrm) return null
+
+      touchMouseVec.set(
+        (e.clientX / window.innerWidth) * 2 - 1,
+        -(e.clientY / window.innerHeight) * 2 + 1,
+      )
+      touchRaycaster.setFromCamera(touchMouseVec, camera)
+
+      const intersects = touchRaycaster.intersectObject(vrm.scene, true)
+      if (intersects.length === 0) return null
+
+      const hitPoint = intersects[0].point
+
+      // Determine region by comparing hit Y to model bounding box
+      const box = new THREE.Box3().setFromObject(vrm.scene)
+      const minY = box.min.y
+      const height = box.max.y - minY
+      if (height <= 0) return 'body'
+
+      const ratio = (hitPoint.y - minY) / height
+
+      // Refine with head bone position if available
+      const headBone = vrm.humanoid?.getNormalizedBoneNode('head')
+      if (headBone) {
+        const headPos = new THREE.Vector3()
+        headBone.getWorldPosition(headPos)
+        const headRatio = (headPos.y - minY) / height
+        if (ratio >= headRatio - 0.02) return 'head'
+      }
+
+      // Check if hit is near hands (X offset from center)
+      const centerX = (box.min.x + box.max.x) / 2
+      const width = box.max.x - box.min.x
+      const xOffset = Math.abs(hitPoint.x - centerX) / (width || 1)
+      if (ratio > 0.35 && ratio < 0.75 && xOffset > 0.35) return 'hand'
+
+      if (ratio >= 0.75) return 'head'
+      if (ratio >= 0.35) return 'body'
+      return 'leg'
+    }
+
+    // ── Left-click: distinguish click (touch) vs drag (move window) ────
+    let leftDownPos: { x: number; y: number; time: number; region: TouchRegion | null } | null = null
+    const CLICK_MOVE_THRESHOLD = 5  // px
+    const CLICK_TIME_THRESHOLD = 300 // ms
+
     function onPointerDown(e: PointerEvent) {
       if (e.button === 0) {
-        // Left click: move window
+        const region = detectTouchRegion(e)
+        if (region) {
+          // Might be a touch — wait for pointerup to confirm it's not a drag
+          leftDownPos = { x: e.clientX, y: e.clientY, time: Date.now(), region }
+          return
+        }
+        // Not on model — move window immediately
         getCurrentWindow().startDragging()
         return
       } else if (e.button === 1) {
@@ -567,6 +631,16 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
     }
 
     function onPointerMove(e: PointerEvent) {
+      // If left button held on model and moved beyond threshold → it's a drag, not a touch
+      if (leftDownPos && e.buttons & 1) {
+        const dx = Math.abs(e.clientX - leftDownPos.x)
+        const dy = Math.abs(e.clientY - leftDownPos.y)
+        if (dx > CLICK_MOVE_THRESHOLD || dy > CLICK_MOVE_THRESHOLD) {
+          leftDownPos = null
+          getCurrentWindow().startDragging()
+          return
+        }
+      }
       if (!dragMode) return
       const dx = e.clientX - prevX
       const dy = e.clientY - prevY
@@ -594,6 +668,21 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
     }
 
     function onPointerUp(e: PointerEvent) {
+      // Confirm touch: short press with no movement on model
+      if (leftDownPos && e.button === 0) {
+        const elapsed = Date.now() - leftDownPos.time
+        const dx = Math.abs(e.clientX - leftDownPos.x)
+        const dy = Math.abs(e.clientY - leftDownPos.y)
+        if (elapsed < CLICK_TIME_THRESHOLD && dx <= CLICK_MOVE_THRESHOLD && dy <= CLICK_MOVE_THRESHOLD) {
+          const now = Date.now()
+          if (now - lastTouchTime > 800) {
+            lastTouchTime = now
+            onTouchRef.current?.(leftDownPos.region!)
+          }
+        }
+        leftDownPos = null
+        return
+      }
       if (dragMode) {
         dragMode = null
         canvas!.releasePointerCapture(e.pointerId)
