@@ -26,6 +26,7 @@ export type VrmBroadcastPayload = {
   audioTotal?: number;
   streaming?: boolean;
   clearText?: boolean;
+  imageUrl?: string;
 };
 
 export function broadcastToVrm(payload: VrmBroadcastPayload) {

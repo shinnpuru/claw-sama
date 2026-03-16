@@ -11,13 +11,14 @@ interface VrmMessage {
   audioIndex?: number
   audioTotal?: number
   streaming?: boolean
+  imageUrl?: string
 }
 
 export type OnVrmMessage = (msg: VrmMessage) => void
 
 const CHAR_RATE_MS = 60
-const AUDIO_BUFFER_MS = 2000
-const MAX_EXTRA_WAIT_MS = 8_000 // max extra time to wait for TTS beyond text duration
+const TTS_CHAR_RATE_MS = 180   // slower rate when TTS enabled (~5-6 chars/sec, close to Chinese speech pace)
+const HIDE_DELAY_MS = 2000     // delay after everything is done before hiding
 const POP_DURATION_MS = 300
 
 // Grapheme segmenter singleton
@@ -41,10 +42,11 @@ if (!document.getElementById(STYLE_ID)) {
 export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { onMessage?: OnVrmMessage; enabled?: boolean; ttsEnabled?: boolean }) {
   const [text, setText] = useState('')
   const [visible, setVisible] = useState(false)
-  const [charCount, setCharCount] = useState(0) // how many chars are "revealed"
+  const [charCount, setCharCount] = useState(0)
   const [thinking, setThinking] = useState(false)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [zoomedSrc, setZoomedSrc] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const maxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null) // hard ceiling — never cancelled by audio
   const typewriterRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -61,6 +63,13 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
   const audioTotalRef = useRef<number>(0)
   const audioReceivedRef = useRef<number>(0)
 
+  // === Hide lifecycle tracking ===
+  // The bubble hides only when ALL three conditions are met:
+  //   1. streamingDone: received a non-streaming (final) text message
+  //   2. typewriter finished: typewriterRef.current === null
+  //   3. audio finished: no audio playing and queue empty
+  const streamingDoneRef = useRef(false)
+
   // Auto-scroll to bottom on char reveal
   useEffect(() => {
     if (scrollRef.current) {
@@ -68,18 +77,58 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
     }
   }, [charCount])
 
-  const scheduleHideAfterAudio = useCallback(() => {
-    // All audio played — hide bubble after a short buffer
-    if (timerRef.current) clearTimeout(timerRef.current)
-    if (maxTimerRef.current) { clearTimeout(maxTimerRef.current); maxTimerRef.current = null }
-    timerRef.current = setTimeout(() => setVisible(false), AUDIO_BUFFER_MS)
+  const hideBubble = useCallback(() => {
+    setVisible(false)
+    setText('')
+    setCharCount(0)
+    setImageUrl(null)
+    setThinking(false)
+    prevRevealedRef.current = 0
+    if (typewriterRef.current) { clearInterval(typewriterRef.current); typewriterRef.current = null }
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
   }, [])
+
+  // Central function: check if all conditions are met to schedule hide
+  const tryScheduleHide = useCallback(() => {
+    // Don't schedule if already scheduled
+    if (timerRef.current) return
+
+    const typewriterDone = typewriterRef.current === null
+    const audioDone = !audioPlayingRef.current && audioQueueRef.current.size === 0
+    const streamingDone = streamingDoneRef.current
+
+    if (streamingDone && typewriterDone && audioDone) {
+      timerRef.current = setTimeout(hideBubble, HIDE_DELAY_MS)
+    }
+  }, [hideBubble])
+
+  // Interrupt: stop all audio playback and clear queue
+  const interruptAudio = useCallback(() => {
+    const lipSync = LipSync.getInstance()
+    lipSync.stopAudio()
+    audioQueueRef.current.clear()
+    audioPlayingRef.current = false
+    audioNextIndexRef.current = 0
+    audioTotalRef.current = 0
+    audioReceivedRef.current = 0
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+  }, [])
+
+  // Expose interrupt globally for voice call to use
+  useEffect(() => {
+    (window as any).__clawInterruptAudio = interruptAudio
+    return () => { delete (window as any).__clawInterruptAudio }
+  }, [interruptAudio])
 
   const playNextAudio = useCallback(() => {
     if (audioPlayingRef.current) return
     const nextIdx = audioNextIndexRef.current
     const url = audioQueueRef.current.get(nextIdx)
-    if (!url) return // next index hasn't arrived yet — wait
+    if (!url) {
+      // Queue empty — check if we can hide
+      tryScheduleHide()
+      return
+    }
     audioQueueRef.current.delete(nextIdx)
     audioNextIndexRef.current = nextIdx + 1
     audioPlayingRef.current = true
@@ -88,30 +137,40 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
       audioPlayingRef.current = false
       if (audioQueueRef.current.has(audioNextIndexRef.current)) {
         playNextAudio()
-      } else if (audioReceivedRef.current >= audioTotalRef.current && audioTotalRef.current > 0) {
-        scheduleHideAfterAudio()
+      } else {
+        // No more queued audio — try to hide (will only succeed if streaming & typewriter also done)
+        tryScheduleHide()
       }
     }
     lipSync.playAudio(url).then((durationMs) => {
       setTimeout(onDone, durationMs)
     }).catch(onDone)
-  }, [scheduleHideAfterAudio])
+  }, [tryScheduleHide])
 
   const handleMessage = useCallback((msg: VrmMessage) => {
     // Audio-only message (from TTS queue broadcast)
     if (!msg.text && msg.audioUrl) {
       if (msg.audioTotal) audioTotalRef.current = msg.audioTotal
       audioReceivedRef.current++
-      // Cancel text-based hide timer — let audio completion handle it
-      if (timerRef.current) clearTimeout(timerRef.current)
-      // Tighten maxTimer: audio arrived, so cap remaining wait at 15s from now
-      if (maxTimerRef.current) {
-        clearTimeout(maxTimerRef.current)
-        maxTimerRef.current = setTimeout(() => setVisible(false), 15_000)
-      }
+      // Cancel any pending hide — more content arrived
+      if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
       const idx = msg.audioIndex ?? audioReceivedRef.current - 1
       audioQueueRef.current.set(idx, msg.audioUrl)
       playNextAudio()
+      return
+    }
+
+    // Image-only message
+    if (!msg.text && msg.imageUrl) {
+      setText('')
+      setCharCount(0)
+      if (typewriterRef.current) { clearInterval(typewriterRef.current); typewriterRef.current = null }
+      prevRevealedRef.current = 0
+      setImageUrl(msg.imageUrl)
+      setVisible(true)
+      streamingDoneRef.current = true
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(hideBubble, 15_000)
       return
     }
 
@@ -121,21 +180,29 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
         onMessage?.({ ...msg, emotionDuration: msg.emotionDuration ?? 10000 })
         if (thinking) {
           setThinking(false)
-          setVisible(false)
-          setText('')
+          hideBubble()
         }
       }
       return
     }
 
-    if (timerRef.current) clearTimeout(timerRef.current)
-    if (maxTimerRef.current) { clearTimeout(maxTimerRef.current); maxTimerRef.current = null }
-    if (typewriterRef.current) clearInterval(typewriterRef.current)
+    // --- Text message (streaming or final) ---
 
-    // Reset audio tracking for new message
-    audioTotalRef.current = 0
-    audioReceivedRef.current = 0
-    audioNextIndexRef.current = 0
+    // Cancel pending hide — new text arrived
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    if (typewriterRef.current) { clearInterval(typewriterRef.current); typewriterRef.current = null }
+
+    const isStreaming = msg.streaming === true
+
+    // On first text message of a new reply, reset audio tracking
+    if (!isStreaming || prevRevealedRef.current === 0) {
+      audioTotalRef.current = 0
+      audioReceivedRef.current = 0
+      audioNextIndexRef.current = 0
+    }
+
+    // Track streaming state
+    streamingDoneRef.current = !isStreaming
 
     const fullText = msg.text
     const graphemes = [...segmenter.segment(fullText)].map((s) => s.segment)
@@ -146,79 +213,87 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
     setVisible(true)
 
     // Incremental streaming: keep previously revealed chars visible
-    const isStreaming = msg.streaming === true
     const previouslyRevealed = prevRevealedRef.current
     const startFrom = isStreaming && previouslyRevealed <= graphemes.length
       ? Math.min(previouslyRevealed, graphemes.length)
       : 0
     setCharCount(startFrom)
 
-    const fallbackDuration = msg.duration || (graphemes.length * CHAR_RATE_MS + 5000)
+    const baseRate = ttsEnabled ? TTS_CHAR_RATE_MS : CHAR_RATE_MS
 
-    const startTypewriter = (duration: number, audioDurationMs?: number) => {
-      setTimeout(() => onMessage?.({ ...msg, emotionDuration: duration }), 1000)
+    const startTypewriter = (audioDurationMs?: number) => {
       const remainingChars = graphemes.length - startFrom
+      if (remainingChars <= 0) {
+        prevRevealedRef.current = graphemes.length
+        setCharCount(graphemes.length)
+        // typewriterRef stays null — typewriter is "done"
+        tryScheduleHide()
+        return
+      }
+
       const charInterval = audioDurationMs
-        ? Math.max(20, (audioDurationMs * 0.8) / (remainingChars || 1))
-        : CHAR_RATE_MS
+        ? Math.max(20, (audioDurationMs * 0.8) / remainingChars)
+        : baseRate
+
+      const emotionDuration = audioDurationMs
+        ? Math.max(audioDurationMs + HIDE_DELAY_MS, remainingChars * charInterval + 5000)
+        : remainingChars * charInterval + 5000
+      setTimeout(() => onMessage?.({ ...msg, emotionDuration }), 1000)
+
       let idx = startFrom
       typewriterRef.current = setInterval(() => {
         idx++
         if (idx >= graphemes.length) {
           setCharCount(graphemes.length)
           prevRevealedRef.current = graphemes.length
-          if (typewriterRef.current) clearInterval(typewriterRef.current)
+          if (typewriterRef.current) { clearInterval(typewriterRef.current); typewriterRef.current = null }
+          // Typewriter done — check if we can hide
+          tryScheduleHide()
         } else {
           setCharCount(idx)
           prevRevealedRef.current = idx
         }
       }, charInterval)
-
-      // Only set auto-hide timer on final (non-streaming) messages
-      if (!isStreaming) {
-        // Normal hide timer (may be cancelled/replaced by audio callbacks)
-        timerRef.current = setTimeout(() => setVisible(false), duration)
-        if (ttsEnabled) {
-          // Hard ceiling: text duration + extra wait, in case TTS partially fails
-          maxTimerRef.current = setTimeout(() => setVisible(false), duration + MAX_EXTRA_WAIT_MS)
-        }
-      }
     }
 
     if (ttsEnabled && msg.audioUrl) {
-      // First text+audio message: play directly and start typewriter
-      audioQueueRef.current.clear() // reset queue for new message
+      // First text+audio message: play directly and start typewriter synced to audio
+      audioQueueRef.current.clear()
       audioPlayingRef.current = false
       const lipSync = LipSync.getInstance()
       lipSync.playAudio(msg.audioUrl).then((audioDurationMs) => {
-        const duration = Math.max(audioDurationMs + AUDIO_BUFFER_MS, fallbackDuration)
-        startTypewriter(duration, audioDurationMs)
+        startTypewriter(audioDurationMs)
       }).catch((err) => {
         console.error('Audio play failed:', err)
-        startTypewriter(fallbackDuration)
+        startTypewriter()
       })
+      // Fallback: if audio takes too long to load, start typewriter anyway
       setTimeout(() => {
-        if (!typewriterRef.current) startTypewriter(fallbackDuration)
+        if (!typewriterRef.current && prevRevealedRef.current < graphemes.length) {
+          startTypewriter()
+        }
       }, 3000)
     } else {
-      startTypewriter(fallbackDuration)
+      startTypewriter()
     }
-  }, [onMessage, ttsEnabled, playNextAudio])
+  }, [onMessage, ttsEnabled, playNextAudio, tryScheduleHide, hideBubble, thinking])
 
   useEffect(() => {
     const es = new EventSource('http://127.0.0.1:18789/plugins/claw-sama/events')
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)
+        console.log('[claw-sama] SSE message:', data.imageUrl ? `imageUrl=${data.imageUrl}` : '', data.text ? `text=${data.text.slice(0, 50)}...` : '', data.clearText ? 'clearText' : '')
         if (data.clearText) {
-          if (timerRef.current) clearTimeout(timerRef.current)
-          if (maxTimerRef.current) { clearTimeout(maxTimerRef.current); maxTimerRef.current = null }
-          if (typewriterRef.current) clearInterval(typewriterRef.current)
+          if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+          if (typewriterRef.current) { clearInterval(typewriterRef.current); typewriterRef.current = null }
           setText('')
           setCharCount(0)
           setThinking(false)
           setVisible(false)
+          setImageUrl(null)
           prevRevealedRef.current = 0
+          streamingDoneRef.current = false
           audioQueueRef.current.clear()
           audioPlayingRef.current = false
           audioNextIndexRef.current = 0
@@ -233,26 +308,113 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
     return () => {
       es.close()
       if (timerRef.current) clearTimeout(timerRef.current)
-      if (maxTimerRef.current) clearTimeout(maxTimerRef.current)
       if (typewriterRef.current) clearInterval(typewriterRef.current)
     }
   }, [handleMessage])
 
-  if (!enabled || !visible || !text) return null
+  const showBubble = enabled && visible && (!!text || !!imageUrl)
 
   return (
-    <div style={containerStyle}>
-      <div ref={scrollRef} style={boxStyle} data-no-passthrough>
-        <div style={textStyle}>
-          {chars.current.map((ch, i) => (
-            i < charCount ? (
-              <span key={i} style={popCharStyle}>{ch === '\n' ? <br /> : ch}</span>
-            ) : null
-          ))}
+    <>
+      {showBubble && (
+        <div style={containerStyle}>
+          <div ref={scrollRef} style={boxStyle} data-no-passthrough>
+            {imageUrl && (
+              <img
+                src={imageUrl}
+                alt=""
+                style={imageThumbStyle}
+                onClick={() => setZoomedSrc(imageUrl)}
+                onError={() => setImageUrl(null)}
+              />
+            )}
+            {text && (
+              <div style={textStyle}>
+                {chars.current.map((ch, i) => (
+                  i < charCount ? (
+                    <span key={i} style={popCharStyle}>{ch === '\n' ? <br /> : ch}</span>
+                  ) : null
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+      )}
+      {zoomedSrc && (
+        <div style={overlayStyle} data-no-passthrough>
+          <div style={{ position: 'relative', display: 'inline-block', maxWidth: '90%', maxHeight: '90%' }}>
+            <img
+              src={zoomedSrc}
+              alt=""
+              style={zoomedImageStyle}
+              onError={() => setZoomedSrc(null)}
+            />
+            <button
+              style={closeButtonStyle}
+              onClick={() => setZoomedSrc(null)}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   )
+}
+
+const imageThumbStyle: React.CSSProperties = {
+  maxWidth: '80%',
+  maxHeight: 120,
+  borderRadius: 6,
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+  objectFit: 'contain' as const,
+  marginBottom: 4,
+  display: 'block',
+  cursor: 'pointer',
+}
+
+const overlayStyle: React.CSSProperties = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  background: 'rgba(0, 0, 0, 0.7)',
+  backdropFilter: 'blur(8px)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 10000,
+  pointerEvents: 'auto',
+}
+
+const closeButtonStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 8,
+  right: 8,
+  width: 32,
+  height: 32,
+  border: 'none',
+  borderRadius: 6,
+  background: 'rgba(125, 125, 125, 0.28)',
+  backdropFilter: 'blur(6px)',
+  color: 'rgba(255, 255, 255, 0.8)',
+  fontSize: 16,
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 10001,
+}
+
+const zoomedImageStyle: React.CSSProperties = {
+  maxWidth: '100%',
+  maxHeight: '100%',
+  borderRadius: 8,
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+  boxShadow: '0 0 24px rgba(100, 160, 255, 0.4)',
+  objectFit: 'contain' as const,
+  display: 'block',
 }
 
 const popCharStyle: React.CSSProperties = {
@@ -263,10 +425,10 @@ const popCharStyle: React.CSSProperties = {
 
 const containerStyle: React.CSSProperties = {
   position: 'absolute',
-  bottom: 76,
+  bottom: 88,
   left: 0,
   width: '100%',
-  zIndex: 9000,
+  zIndex: 200,
   pointerEvents: 'none',
   padding: 8,
   boxSizing: 'border-box',

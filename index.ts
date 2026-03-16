@@ -1,6 +1,6 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { createClawSamaPlugin, CLAW_SAMA_SYSTEM_PROMPT } from "./src/channel.js";
+import { createClawSamaPlugin, buildClawSamaSystemPrompt } from "./src/channel.js";
 import { setClawSamaRuntime } from "./src/runtime.js";
 import { launchTauri, stopTauri } from "./src/tauri-launcher.js";
 import path from "node:path";
@@ -21,7 +21,7 @@ const plugin = {
 
     // Inject system prompt for VRM avatar awareness
     api.on("before_prompt_build", () => {
-      return { appendSystemContext: CLAW_SAMA_SYSTEM_PROMPT };
+      return { appendSystemContext: buildClawSamaSystemPrompt() };
     });
 
     // Launch Tauri desktop app when gateway starts

@@ -34,8 +34,11 @@ export function usePassThrough(enabled: boolean) {
       return
     }
 
-    active.current = true
-    invoke('start_cursor_monitor').catch(console.error)
+    // Delay enabling pass-through so the window is selectable on startup
+    const startDelay = setTimeout(() => {
+      active.current = true
+      invoke('start_cursor_monitor').catch(console.error)
+    }, 1000)
 
     const unlisten = listen<CursorPosition>('cursor-position', async (event) => {
       if (!active.current) return
@@ -112,6 +115,7 @@ export function usePassThrough(enabled: boolean) {
     })
 
     return () => {
+      clearTimeout(startDelay)
       active.current = false
       unlisten.then((fn) => fn())
       invoke('stop_cursor_monitor').catch(() => {})

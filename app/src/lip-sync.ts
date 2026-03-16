@@ -153,10 +153,17 @@ export class LipSync {
     }
   }
 
-  dispose() {
+  /** Stop current audio playback immediately. */
+  stopAudio() {
     if (this.currentSource) {
+      try { this.currentSource.stop() } catch {}
       try { this.currentSource.disconnect() } catch {}
+      this.currentSource = null
     }
+  }
+
+  dispose() {
+    this.stopAudio()
     if (this.lipSyncNode) {
       try { this.lipSyncNode.disconnect() } catch {}
     }

@@ -15,6 +15,7 @@ interface VRMSceneProps {
   modelPath: string
   idleAnimationPath?: string
   onTouch?: (region: TouchRegion) => void
+  onModelLoaded?: () => void
 }
 
 export type TrackingMode = 'mouse' | 'camera'
@@ -191,6 +192,7 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   modelPath,
   idleAnimationPath = '/idle_loop.vrma',
   onTouch,
+  onModelLoaded,
 }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const emoteRef = useRef<EmoteController | null>(null)
@@ -202,6 +204,8 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   const lipSyncRef = useRef<LipSync>(LipSync.getInstance())
   const onTouchRef = useRef(onTouch)
   onTouchRef.current = onTouch
+  const onModelLoadedRef = useRef(onModelLoaded)
+  onModelLoadedRef.current = onModelLoaded
 
   useImperativeHandle(ref, () => ({
     setEmotion(emotion: string, intensity?: number) {
@@ -360,8 +364,13 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
         }
 
         panCameraRef.current = (dx: number, dy: number) => {
-          pivot.x -= dx * 0.003
-          pivot.y += dy * 0.003
+          const right = new THREE.Vector3()
+          const up = new THREE.Vector3()
+          camera.getWorldDirection(new THREE.Vector3())
+          right.setFromMatrixColumn(camera.matrixWorld, 0) // camera right
+          up.setFromMatrixColumn(camera.matrixWorld, 1)    // camera up
+          pivot.addScaledVector(right, -dx * 0.003)
+          pivot.addScaledVector(up, dy * 0.003)
           updateCameraOrbit()
         }
 
@@ -481,6 +490,10 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
 
         // Reset spring bones after everything is set up
         loadedVrm.springBoneManager?.reset()
+
+        // Notify parent that model is ready (for auto-screenshot etc.)
+        // Delay slightly so the first frame is rendered
+        setTimeout(() => onModelLoadedRef.current?.(), 500)
       },
       (progress) => {
         const pct = ((progress.loaded / (progress.total || 1)) * 100).toFixed(1)
@@ -557,7 +570,11 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
     // ── Touch interaction: detect body region from raycast hit ────────────
     const touchRaycaster = new THREE.Raycaster()
     const touchMouseVec = new THREE.Vector2()
-    let lastTouchTime = 0
+    let lastTapTime = 0
+    let lastTapRegion: TouchRegion | null = null
+    let lastTouchFireTime = 0
+    const DOUBLE_TAP_WINDOW = 500 // ms
+    const TOUCH_COOLDOWN = 30_000 // ms
 
     function detectTouchRegion(e: PointerEvent): TouchRegion | null {
       if (!vrm) return null
@@ -675,9 +692,17 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
         const dy = Math.abs(e.clientY - leftDownPos.y)
         if (elapsed < CLICK_TIME_THRESHOLD && dx <= CLICK_MOVE_THRESHOLD && dy <= CLICK_MOVE_THRESHOLD) {
           const now = Date.now()
-          if (now - lastTouchTime > 800) {
-            lastTouchTime = now
-            onTouchRef.current?.(leftDownPos.region!)
+          const region = leftDownPos.region!
+          if (now - lastTapTime < DOUBLE_TAP_WINDOW && lastTapRegion === region && now - lastTouchFireTime > TOUCH_COOLDOWN) {
+            // Double-tap confirmed
+            lastTouchFireTime = now
+            onTouchRef.current?.(region)
+            lastTapTime = 0
+            lastTapRegion = null
+          } else {
+            // First tap — wait for second
+            lastTapTime = now
+            lastTapRegion = region
           }
         }
         leftDownPos = null
@@ -775,6 +800,10 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
         const { x, y, resolve } = pendingHitTest
         pendingHitTest = null
 
+        if (!vrm) {
+          resolve(true) // Model not loaded — don't pass through
+        } else {
+
         const dpr = renderer.getPixelRatio()
         const bufW = canvas.clientWidth * dpr
         const bufH = canvas.clientHeight * dpr
@@ -794,6 +823,7 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
         renderer.setRenderTarget(null)
 
         resolve(hitPixel[3] > 10)
+        } // end else (vrm exists)
       }
     }
 

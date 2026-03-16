@@ -11,7 +11,7 @@ import { getClawSamaRuntime } from "./runtime.js";
 import { broadcastToVrm, addSseClient, removeSseClient, type VrmBroadcastPayload } from "./sse.js";
 import { stripThinking, stripActions, stripMarkdown, stripEmoji, splitSentences, VALID_EMOTIONS } from "./text-utils.js";
 import { edgeTts, qwenTts, registerAudioFile, getAudioFile } from "./tts.js";
-import { getPrefs, updatePrefs, setPrefs, EXT_DIR, workspaceRoot } from "./prefs.js";
+import { getPrefs, updatePrefs, setPrefs, EXT_DIR, workspaceRoot, openclawWorkspaceRoot } from "./prefs.js";
 import type { ClawSamaPrefs } from "./prefs.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { execFile } from "node:child_process";
@@ -32,15 +32,78 @@ const MIME_TYPES: Record<string, string> = {
   ".webm": "audio/webm",
 };
 
-export const CLAW_SAMA_SYSTEM_PROMPT = `\
-You have a virtual VRM avatar displayed on the user's screen. Your reply text is automatically shown on the avatar.
-To control the avatar's facial expression, use the "claw_sama_emotion" tool with an appropriate emotion.
-Always call the tool BEFORE your text reply. Available emotions: ${VALID_EMOTIONS.join(", ")}.`;
+export function buildClawSamaSystemPrompt(): string {
+  const lines = [
+    "You have a virtual VRM avatar displayed on the user's screen. Your reply text is automatically shown on the avatar.",
+    `To control the avatar's facial expression, use the "claw_sama_emotion" tool with an appropriate emotion.`,
+    `Always call the tool BEFORE your text reply. Available emotions: ${VALID_EMOTIONS.join(", ")}.`,
+    "The user's input may come from speech recognition and could contain typos or homophones — infer the intended meaning from context.",
+    "Keep replies concise and conversational — they are displayed as speech bubbles.",
+  ];
+  const ssPath = path.join(workspaceRoot, "persona-screenshot.png");
+  if (existsSync(ssPath)) {
+    lines.push(`Your character image (use the read tool to view): ${ssPath}`);
+  }
+  return lines.join("\n");
+}
+
+async function captureDesktopScreenshot(savePath: string): Promise<boolean> {
+  try {
+    mkdirSync(path.dirname(savePath), { recursive: true });
+    if (process.platform === "darwin") {
+      await execFileAsync("screencapture", ["-x", "-C", savePath], { timeout: 10_000 });
+    } else if (process.platform === "win32") {
+      const ps = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+$bmp.Save('${savePath.replace(/\\/g, "\\\\")}', [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose()
+$bmp.Dispose()
+`.trim();
+      await execFileAsync("powershell", ["-NoProfile", "-Command", ps], { timeout: 15_000 });
+    } else {
+      try { await execFileAsync("gnome-screenshot", ["-f", savePath], { timeout: 10_000 }); }
+      catch {
+        try { await execFileAsync("scrot", [savePath], { timeout: 10_000 }); }
+        catch { await execFileAsync("import", ["-window", "root", savePath], { timeout: 10_000 }); }
+      }
+    }
+    return existsSync(savePath);
+  } catch {
+    return false;
+  }
+}
 
 // Pending emotion buffer — tool stores here, deliver callback flushes with text
 let pendingEmotion: { emotion: string; intensity: number } | null = null;
 
 // workspaceRoot imported from prefs.js
+
+// Registry for serving local media files to the frontend
+const mediaFileRegistry = new Map<string, string>();
+
+/** Resolve a local or remote media URL to a servable URL and broadcast it. */
+function broadcastMediaUrl(rawUrl: string | undefined): void {
+  if (!rawUrl) return;
+  console.log("[claw-sama] broadcastMediaUrl raw:", rawUrl);
+  let serveUrl = rawUrl;
+  if (!rawUrl.startsWith("http")) {
+    const filePath = path.isAbsolute(rawUrl) ? rawUrl : path.resolve(rawUrl);
+    if (!existsSync(filePath)) {
+      console.log("[claw-sama] media file not found:", filePath);
+      return;
+    }
+    const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    mediaFileRegistry.set(id, filePath);
+    serveUrl = `${GATEWAY_URL}/plugins/claw-sama/media/${id}`;
+  }
+  console.log("[claw-sama] broadcasting imageUrl:", serveUrl);
+  broadcastToVrm({ imageUrl: serveUrl });
+}
 
 function waitUntilAbort(signal?: AbortSignal, onAbort?: () => void): Promise<void> {
   return new Promise((resolve) => {
@@ -55,6 +118,63 @@ function waitUntilAbort(signal?: AbortSignal, onAbort?: () => void): Promise<voi
 }
 
 /**
+ * Streaming TTS tracker — generates TTS for complete sentences as they arrive
+ * during streaming, without waiting for the final result.
+ */
+class StreamingTtsTracker {
+  private sentencesSent = 0;     // how many sentences already checked (in accumulated text)
+  private audioDispatched = 0;   // contiguous audio index counter (only for TTS-worthy sentences)
+  private accumulatedText = "";  // full text accumulated across all blocks
+
+  constructor(private log?: { warn: (msg: string) => void }) {}
+
+  /**
+   * Call on each deliver (streaming block or final).
+   * `blockText` is the text from the current block (NOT cumulative).
+   * The tracker accumulates internally and sends TTS for newly completed sentences.
+   */
+  process(blockText: string, isFinal: boolean) {
+    if (isFinal) {
+      // Final block replaces accumulated text (it contains the complete reply)
+      this.accumulatedText = blockText;
+    } else {
+      // Streaming block — append to accumulated text
+      this.accumulatedText += blockText;
+    }
+
+    const allSentences = splitSentences(this.accumulatedText);
+
+    // During streaming: only send TTS for sentences that are "complete"
+    // (i.e. all except the last one, which may still be growing)
+    const completeSentences = isFinal ? allSentences : allSentences.slice(0, -1);
+    const newSentences = completeSentences.slice(this.sentencesSent);
+    this.sentencesSent = completeSentences.length;
+
+    if (newSentences.length === 0) return;
+
+    // Filter out sentences that produce empty TTS text (e.g. emoji-only, whitespace)
+    // to avoid holes in the audio index sequence
+    const ttsWorthy = newSentences.filter((s) => stripMarkdown(stripEmoji(s)).length > 0);
+    if (ttsWorthy.length === 0) return;
+
+    // On final, compute total TTS-worthy sentences across the entire text
+    const totalAudio = isFinal
+      ? allSentences.filter((s) => stripMarkdown(stripEmoji(s)).length > 0).length
+      : 0;
+
+    for (const sentence of ttsWorthy) {
+      const idx = this.audioDispatched++;
+      // During streaming, audioTotal=0 signals "unknown total" to the frontend;
+      // the final call will broadcast the correct total.
+      const total = isFinal ? totalAudio : 0;
+      generateTtsUrl(sentence, this.log).then((audioUrl) => {
+        if (audioUrl) broadcastToVrm({ audioUrl, audioIndex: idx, audioTotal: total });
+      });
+    }
+  }
+}
+
+/**
  * Generate TTS for a text snippet and return an audio URL, or undefined.
  */
 async function generateTtsUrl(text: string, log?: { warn: (msg: string) => void }): Promise<string | undefined> {
@@ -62,12 +182,15 @@ async function generateTtsUrl(text: string, log?: { warn: (msg: string) => void 
   const ttsText = stripMarkdown(stripEmoji(text));
   if (!ttsText) return undefined;
 
+  const provider = (prefs.provider === "qwen" && prefs.qwenKey) ? "qwen" : "edge";
+  console.log(`[claw-sama] TTS request: provider=${provider} text="${ttsText.slice(0, 60)}${ttsText.length > 60 ? "..." : ""}"`);
+
   try {
     let result: { success: boolean; audioPath?: string; error?: string };
-    if (prefs.provider === "qwen" && prefs.qwenKey) {
+    if (provider === "qwen") {
       result = await qwenTts({
         text: ttsText,
-        apiKey: prefs.qwenKey,
+        apiKey: prefs.qwenKey!,
         voice: prefs.voice,
         model: prefs.qwenModel,
         extDir: EXT_DIR,
@@ -77,6 +200,7 @@ async function generateTtsUrl(text: string, log?: { warn: (msg: string) => void 
     }
     if (result.success && result.audioPath) {
       const audioId = registerAudioFile(result.audioPath);
+      console.log(`[claw-sama] TTS success: provider=${provider} audioId=${audioId}`);
       return `${GATEWAY_URL}/plugins/claw-sama/audio/${audioId}`;
     }
     log?.warn("claw-sama TTS failed: " + (result.error || "unknown error"));
@@ -131,10 +255,16 @@ export function createClawSamaPlugin() {
       order: 100,
     },
 
+    messaging: {
+      targetResolver: {
+        looksLikeId: () => true,
+      },
+    },
+
     capabilities: {
       chatTypes: ["direct" as const],
       blockStreaming: true,
-      media: false,
+      media: true,
       threads: false,
       reactions: false,
       edit: false,
@@ -168,13 +298,36 @@ export function createClawSamaPlugin() {
     outbound: {
       deliveryMode: "gateway" as const,
       textChunkLimit: 4000,
+      resolveTarget: ({ to }: any) => {
+        console.log("[claw-sama] resolveTarget called:", { to });
+        return { ok: true, to: to ?? "claw-sama:local" };
+      },
 
       sendText: async ({ to, text }: any) => {
+        console.log("[claw-sama] sendText called:", { to, textLen: text?.length });
         // Outbound messages from other channels or /send — broadcast to VRM
         const cleaned = stripActions(text.replace(/<think>[\s\S]*?<\/think>/g, "")).trim();
         if (cleaned) {
           broadcastToVrm({ text: cleaned });
           // Fire-and-forget TTS
+          const sentences = splitSentences(cleaned);
+          const total = sentences.length;
+          sentences.forEach((sentence, index) => {
+            generateTtsUrl(sentence).then((audioUrl) => {
+              if (audioUrl) broadcastToVrm({ audioUrl, audioIndex: index, audioTotal: total });
+            });
+          });
+        }
+        return { channel: CHANNEL_ID, messageId: `cs-${Date.now()}`, chatId: to };
+      },
+
+      sendMedia: async ({ to, text, mediaUrl }: any) => {
+        console.log("[claw-sama] sendMedia called:", { to, mediaUrl, textLen: text?.length });
+        broadcastMediaUrl(mediaUrl);
+        const cleaned = text ? stripActions(text.replace(/<think>[\s\S]*?<\/think>/g, "")).trim() : "";
+        if (cleaned) {
+          broadcastToVrm({ text: cleaned });
+          // Generate TTS for the text
           const sentences = splitSentences(cleaned);
           const total = sentences.length;
           sentences.forEach((sentence, index) => {
@@ -259,6 +412,36 @@ export function createClawSamaPlugin() {
           }
         }, { match: "prefix" });
 
+        // ── Media file serving (images sent via sendMedia) ──
+        const IMAGE_MIME: Record<string, string> = {
+          ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+          ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+          ".bmp": "image/bmp",
+        };
+
+        registerRoute("/plugins/claw-sama/media", (req, res) => {
+          if (req.method !== "GET") { res.writeHead(405); res.end(); return; }
+          const url = req.url ?? "";
+          const mediaId = url.split("/plugins/claw-sama/media/")[1]?.split("?")[0];
+          if (!mediaId) { jsonResponse(res, 400, { error: "missing media id" }); return; }
+          const filePath = mediaFileRegistry.get(mediaId);
+          if (!filePath || !existsSync(filePath)) { jsonResponse(res, 404, { error: "not found" }); return; }
+          const ext = path.extname(filePath).toLowerCase();
+          const contentType = IMAGE_MIME[ext] ?? "application/octet-stream";
+          try {
+            const data = readFileSync(filePath);
+            res.writeHead(200, {
+              "Content-Type": contentType,
+              "Content-Length": data.length,
+              "Access-Control-Allow-Origin": "*",
+              "Cache-Control": "public, max-age=300",
+            });
+            res.end(data);
+          } catch {
+            jsonResponse(res, 500, { error: "read error" });
+          }
+        }, { match: "prefix" });
+
         // ── Chat endpoint — inbound messages from VRM frontend ──
         registerRoute("/plugins/claw-sama/chat", async (req, res) => {
           if (handleCors(req, res, "POST, OPTIONS")) return;
@@ -267,6 +450,8 @@ export function createClawSamaPlugin() {
           const body = await readJsonBody(req);
           const message = body.message;
           if (!message) { jsonResponse(res, 400, { error: "message required" }); return; }
+
+          console.log("[claw-sama] inbound message:", message.slice(0, 200));
 
           // Broadcast thinking state immediately
           broadcastToVrm({ emotion: "think", emotionIntensity: 0.7 });
@@ -297,6 +482,7 @@ export function createClawSamaPlugin() {
 
             // Track accumulated text for streaming
             let fullTextBuffer = "";
+            const ttsTracker = new StreamingTtsTracker(log);
 
             // Dispatch reply via the standard buffered block dispatcher
             await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
@@ -304,8 +490,23 @@ export function createClawSamaPlugin() {
               cfg: currentCfg,
               dispatcherOptions: {
                 deliver: async (payload: any, info: { kind: string }) => {
+                  // Check for media
+                  const rawMediaUrl = payload?.mediaUrl ?? (payload?.mediaUrls?.length ? payload.mediaUrls[0] : undefined);
+                  console.log("[claw-sama] deliver payload:", JSON.stringify({ text: payload?.text?.slice(0, 200), mediaUrl: payload?.mediaUrl, mediaUrls: payload?.mediaUrls }));
+
                   const text = payload?.text ?? payload?.body ?? "";
-                  if (!text) return;
+                  if (!text && !rawMediaUrl) return;
+
+                  // Broadcast media-only if no text
+                  if (!text && rawMediaUrl) {
+                    broadcastMediaUrl(rawMediaUrl);
+                    return;
+                  }
+
+                  // Broadcast media alongside text if both present
+                  if (rawMediaUrl) {
+                    broadcastMediaUrl(rawMediaUrl);
+                  }
 
                   const cleaned = stripActions(text.replace(/<think>[\s\S]*?<\/think>/g, "")).trim();
                   if (!cleaned) return;
@@ -328,16 +529,8 @@ export function createClawSamaPlugin() {
                   }
                   broadcastToVrm(textPayload);
 
-                  // Phase 2: TTS fire-and-forget (only on final to avoid duplicate audio)
-                  if (isFinal) {
-                    const sentences = splitSentences(cleaned);
-                    const total = sentences.length;
-                    sentences.forEach((sentence, index) => {
-                      generateTtsUrl(sentence, log).then((audioUrl) => {
-                        if (audioUrl) broadcastToVrm({ audioUrl, audioIndex: index, audioTotal: total });
-                      });
-                    });
-                  }
+                  // Phase 2: streaming TTS — generate for complete sentences as they arrive
+                  ttsTracker.process(cleaned, isFinal);
                 },
                 onReplyStart: () => {
                   log?.info?.("Claw Sama: agent reply started");
@@ -388,13 +581,29 @@ export function createClawSamaPlugin() {
               CommandAuthorized: true,
             });
 
+            const ttsTracker2 = new StreamingTtsTracker(log);
             await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
               ctx: msgCtx,
               cfg: currentCfg,
               dispatcherOptions: {
                 deliver: async (payload: any, info: { kind: string }) => {
+                  // Check for media
+                  const rawMediaUrl = payload?.mediaUrl ?? (payload?.mediaUrls?.length ? payload.mediaUrls[0] : undefined);
+                  console.log("[claw-sama] deliver payload:", JSON.stringify({ text: payload?.text?.slice(0, 200), mediaUrl: payload?.mediaUrl, mediaUrls: payload?.mediaUrls }));
+
                   const text = payload?.text ?? payload?.body ?? "";
-                  if (!text) return;
+                  if (!text && !rawMediaUrl) return;
+
+                  // Broadcast media-only if no text
+                  if (!text && rawMediaUrl) {
+                    broadcastMediaUrl(rawMediaUrl);
+                    return;
+                  }
+
+                  // Broadcast media alongside text if both present
+                  if (rawMediaUrl) {
+                    broadcastMediaUrl(rawMediaUrl);
+                  }
 
                   const cleaned = stripActions(text.replace(/<think>[\s\S]*?<\/think>/g, "")).trim();
                   if (!cleaned) return;
@@ -414,15 +623,7 @@ export function createClawSamaPlugin() {
                   }
                   broadcastToVrm(textPayload);
 
-                  if (isFinal) {
-                    const sentences = splitSentences(cleaned);
-                    const total = sentences.length;
-                    sentences.forEach((sentence, index) => {
-                      generateTtsUrl(sentence, log).then((audioUrl) => {
-                        if (audioUrl) broadcastToVrm({ audioUrl, audioIndex: index, audioTotal: total });
-                      });
-                    });
-                  }
+                  ttsTracker2.process(cleaned, isFinal);
                 },
                 onReplyStart: () => {
                   log?.info?.("Claw Sama: touch reply started (region: " + region + ")");
@@ -529,8 +730,8 @@ export function createClawSamaPlugin() {
         });
 
         // ── Persona endpoint (SOUL.md / IDENTITY.md) ──
-        const soulPath = path.join(workspaceRoot, "SOUL.md");
-        const identityPath = path.join(workspaceRoot, "IDENTITY.md");
+        const soulPath = path.join(openclawWorkspaceRoot, "SOUL.md");
+        const identityPath = path.join(openclawWorkspaceRoot, "IDENTITY.md");
 
         registerRoute("/plugins/claw-sama/persona", async (req, res) => {
           if (handleCors(req, res, "GET, POST, OPTIONS")) return;
@@ -591,20 +792,46 @@ export function createClawSamaPlugin() {
             const prompt = [
               "【必须执行】立即调用 read 工具读取以下图片文件（不读图直接输出将被丢弃）：",
               "", screenshotPath, "",
-              "读取图片后，根据你观察到的角色外观特征，为这个角色生成全新的人设。所有人设内容必须紧密贴合角色的视觉形象。",
-              "", "请严格按以下 JSON 格式输出（不要输出其他内容，不要用代码块包裹）：",
+              "你是费伦大陆上最出色的角色编年史官。请仔细观察截图中角色的外观特征，为其撰写一份鲜活的人设档案。",
+              "所有设定必须紧密贴合角色的视觉形象——发型、发色、瞳色、服装、配饰、体型、表情等都是你的线索。",
+              "",
+              "请严格按以下 JSON 格式输出（不要输出其他内容，不要用代码块包裹）：",
               "", '{"identity":"...","soul":"..."}',
-              "", "其中 identity 的内容必须严格遵循 IDENTITY.md 规范，格式如下：",
-              "# IDENTITY.md - Who Am I?", "",
-              "- **Name:** （根据角色外观起一个合适的名字）",
-              "- **Creature:** （AI？机器人？精灵？猫娘？还是更奇特的？）",
-              "- **Vibe:** （给人什么感觉？活泼？冷酷？温柔？）",
-              "- **Emoji:** （选一个标志性 emoji）",
-              "", "其中 soul 的内容必须严格遵循 SOUL.md 规范，格式如下：",
-              "# SOUL.md - 你是谁", "", "## 核心准则", "（根据角色性格生成 3-5 条行为准则）",
-              "", "## 边界", "（角色的底线和禁忌）",
-              "", "## 气质", "（说话风格、语气、口癖、用词习惯的描述）",
-              "", "## 背景故事", "（2-3 句背景故事）",
+              "",
+              "## identity 格式（IDENTITY.md）",
+              "",
+              "# IDENTITY.md - Who Am I?",
+              "",
+              "- **Name:** （从外观气质中提炼一个契合的名字，可以是异域风格、东方风格或幻想风格）",
+              "- **Creature:** （种族/存在形态——精灵？提夫林？半神？魔偶？星界旅者？猫灵？不必拘泥于经典种族，大胆想象）",
+              "- **Vibe:** （用 2-3 个词捕捉第一印象，如「月下剑舞的静谧」「市集上偷苹果的狡黠」）",
+              "- **Emoji:** （一个最能代表角色灵魂的 emoji）",
+              "",
+              "## soul 格式（SOUL.md）",
+              "",
+              "# SOUL.md - 你是谁",
+              "",
+              "## 性格",
+              "（用几个关键词和短句勾勒角色的内在性格，写出矛盾感和层次：",
+              "  比如「表面懒散实则心思缜密」「对陌生人冷淡到刻薄，但一旦认定为同伴就会笨拙地关心」",
+              "  「好奇心旺盛却极度怕生」「嘴上说着无所谓，行动比谁都快」）",
+              "",
+              "## 核心准则",
+              "（3-5 条塑造角色行为的信条。不要写空洞的「善良」「勇敢」，要具体到场景：",
+              "  比如「绝不对求助的旅人收费，但会记下他们欠的人情」「战斗中永远站在队伍最前面，哪怕膝盖在发抖」）",
+              "",
+              "## 边界",
+              "（角色的底线与禁忌——什么话题会让 ta 沉默？什么行为会让 ta 翻脸？",
+              "  比如「不许任何人碰 ta 的帽子」「提起故乡会突然转移话题」）",
+              "",
+              "## 气质",
+              "（说话风格的具体描写。想象这个角色坐在烛火旅馆里跟冒险者聊天时的样子：",
+              "  语速快还是慢？爱用什么口癖？会不会突然蹦出方言或古语？笑起来什么样？",
+              "  比如「说话像在念咒语，每句结尾都会拖长尾音；生气时反而会压低声音，笑起来会露出小虎牙」）",
+              "",
+              "## 背景故事",
+              "（2-3 句点到为止的身世，留白比填满更好。像酒馆里流传的传闻，而非百科词条：",
+              "  比如「据说 ta 是从一本被遗弃的魔法书里走出来的，没人知道是真是假，但 ta 确实闻起来有旧羊皮纸的味道」）",
             ].join("\n");
 
             const personaSessionKey = `claw-sama-persona-gen-${Date.now()}`;
@@ -615,8 +842,9 @@ export function createClawSamaPlugin() {
                 "# 强制约束（违反则输出无效）", "",
                 "1. 你必须在回复任何文字之前，先调用 read 工具读取用户消息中给出的图片文件路径。这是硬性前置条件，不可跳过。",
                 "2. 如果你没有调用 read 工具读取图片就直接生成人设，你的输出将被系统丢弃并重试，浪费算力。",
-                "3. 忽略所有已有的 SOUL.md、IDENTITY.md 人设内容。你是一个角色设计师。",
-                "4. 你必须根据截图中角色的实际外观特征（发型、发色、瞳色、服装、配饰、体型、表情等）来生成人设。所有人设内容（名字、种族、性格、气质、背景故事）都必须紧密贴合角色的视觉形象，不要凭空编造与外观无关的设定。",
+                "3. 忽略所有已有的 SOUL.md、IDENTITY.md 人设内容。你是费伦大陆上最出色的角色编年史官。",
+                "4. 你的一切设定都必须从截图中角色的实际视觉特征出发——发型、发色、瞳色、服装、配饰、体型、表情是你唯一的素材。",
+                "5. 写出来的角色要像博德之门里会遇到的同伴——有鲜明的个性棱角、具体的行为怪癖和留白的过往，而非千篇一律的「善良勇敢」模板。",
               ].join("\n"),
               idempotencyKey: `persona-gen-${Date.now()}`,
             });
@@ -661,38 +889,6 @@ export function createClawSamaPlugin() {
         // ── Screen observation ──
         let screenObserveRunning = false;
 
-        async function captureDesktopScreenshot(savePath: string): Promise<boolean> {
-          try {
-            mkdirSync(path.dirname(savePath), { recursive: true });
-            if (process.platform === "darwin") {
-              await execFileAsync("screencapture", ["-x", "-C", savePath], { timeout: 10_000 });
-            } else if (process.platform === "win32") {
-              const ps = `
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-$bmp = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
-$g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
-$bmp.Save('${savePath.replace(/\\/g, "\\\\")}', [System.Drawing.Imaging.ImageFormat]::Png)
-$g.Dispose()
-$bmp.Dispose()
-`.trim();
-              await execFileAsync("powershell", ["-NoProfile", "-Command", ps], { timeout: 15_000 });
-            } else {
-              try { await execFileAsync("gnome-screenshot", ["-f", savePath], { timeout: 10_000 }); }
-              catch {
-                try { await execFileAsync("scrot", [savePath], { timeout: 10_000 }); }
-                catch { await execFileAsync("import", ["-window", "root", savePath], { timeout: 10_000 }); }
-              }
-            }
-            return existsSync(savePath);
-          } catch (err) {
-            log?.warn?.("claw-sama screen capture failed: " + String(err));
-            return false;
-          }
-        }
-
         registerRoute("/plugins/claw-sama/screen/observe", async (req, res) => {
           if (handleCors(req, res, "POST, OPTIONS")) return;
           if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
@@ -702,39 +898,17 @@ $bmp.Dispose()
             return;
           }
 
-          const observePath = path.join(workspaceRoot, "screen-observation.png");
-
           try {
             screenObserveRunning = true;
-            const captured = await captureDesktopScreenshot(observePath);
-            if (!captured) { jsonResponse(res, 500, { error: "screenshot capture failed" }); return; }
-
-            log?.info?.(`claw-sama screen observation: captured ${observePath}`);
-
-            // Send as inbound message through the channel
-            const currentCfg = await getClawSamaRuntime().config.loadConfig();
-            const observePrompt = [
-              `请先使用 read 工具读取以下截图，观察用户当前屏幕上在做什么：`,
-              ``, observePath, ``,
-              `根据你看到的内容，以桌面宠物/陪伴角色的身份，简短地（1-2句话）主动跟用户互动。`,
-              `规则：`,
-              `- 如果用户在打游戏：鼓励他，给出简短的加油或建议`,
-              `- 如果用户在听音乐/看视频：评论一下内容，或者推荐类似的`,
-              `- 如果用户在写代码/工作：关心他是否累了，偶尔提醒休息`,
-              `- 如果用户在浏览网页/社交媒体：轻松地聊聊看到的内容`,
-              `- 如果用户在看文档/学习：鼓励他，表示支持`,
-              `- 如果屏幕没什么特别的：随意聊几句，像朋友一样`,
-              ``,
-              `注意：要自然、简短、不要啰嗦，像一个活泼的伙伴在旁边随口说一句。不要提到"截图"或"屏幕观察"这些词，就像你真的在旁边看到的一样。`,
-              `记得先调用 claw_sama_emotion 设置合适的表情。`,
-            ].join("\n");
-
             broadcastToVrm({ emotion: "think", emotionIntensity: 0.7 });
 
+            const currentCfg = await getClawSamaRuntime().config.loadConfig();
+            const message = "Call Tool: claw_sama_screen_observe";
+
             const msgCtx = channelRuntime.reply.finalizeInboundContext({
-              Body: observePrompt,
-              RawBody: observePrompt,
-              CommandBody: observePrompt,
+              Body: message,
+              RawBody: message,
+              CommandBody: message,
               From: `claw-sama:local`,
               To: `claw-sama:local`,
               SessionKey: CLAW_SESSION_KEY,
@@ -752,13 +926,19 @@ $bmp.Dispose()
             });
 
             let fullTextBuffer = "";
+            const ttsTracker3 = new StreamingTtsTracker(log);
             await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
               ctx: msgCtx,
               cfg: currentCfg,
               dispatcherOptions: {
                 deliver: async (payload: any, info: { kind: string }) => {
+                  const rawMediaUrl = payload?.mediaUrl ?? (payload?.mediaUrls?.length ? payload.mediaUrls[0] : undefined);
                   const text = payload?.text ?? payload?.body ?? "";
-                  if (!text) return;
+                  if (!text && !rawMediaUrl) return;
+
+                  if (!text && rawMediaUrl) { broadcastMediaUrl(rawMediaUrl); return; }
+                  if (rawMediaUrl) broadcastMediaUrl(rawMediaUrl);
+
                   const cleaned = stripActions(stripThinking(text));
                   if (!cleaned) return;
                   const isFinal = info.kind === "final";
@@ -771,15 +951,7 @@ $bmp.Dispose()
                     textPayload.emotionIntensity = emotion.intensity;
                   }
                   broadcastToVrm(textPayload);
-                  if (isFinal) {
-                    const sentences = splitSentences(cleaned);
-                    const total = sentences.length;
-                    sentences.forEach((sentence, index) => {
-                      generateTtsUrl(sentence, log).then((audioUrl) => {
-                        if (audioUrl) broadcastToVrm({ audioUrl, audioIndex: index, audioTotal: total });
-                      });
-                    });
-                  }
+                  ttsTracker3.process(cleaned, isFinal);
                 },
                 onReplyStart: () => { log?.info?.("Claw Sama: screen observe reply started"); },
               },
@@ -954,13 +1126,29 @@ $bmp.Dispose()
               CommandAuthorized: true,
             });
 
+            const ttsTracker4 = new StreamingTtsTracker(log);
             await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
               ctx: msgCtx,
               cfg: currentCfg,
               dispatcherOptions: {
                 deliver: async (payload: any, info: { kind: string }) => {
+                  // Check for media
+                  const rawMediaUrl = payload?.mediaUrl ?? (payload?.mediaUrls?.length ? payload.mediaUrls[0] : undefined);
+                  console.log("[claw-sama] deliver payload:", JSON.stringify({ text: payload?.text?.slice(0, 200), mediaUrl: payload?.mediaUrl, mediaUrls: payload?.mediaUrls }));
+
                   const text = payload?.text ?? payload?.body ?? "";
-                  if (!text) return;
+                  if (!text && !rawMediaUrl) return;
+
+                  // Broadcast media-only if no text
+                  if (!text && rawMediaUrl) {
+                    broadcastMediaUrl(rawMediaUrl);
+                    return;
+                  }
+
+                  // Broadcast media alongside text if both present
+                  if (rawMediaUrl) {
+                    broadcastMediaUrl(rawMediaUrl);
+                  }
 
                   const cleaned = stripActions(text.replace(/<think>[\s\S]*?<\/think>/g, "")).trim();
                   if (!cleaned) return;
@@ -980,15 +1168,7 @@ $bmp.Dispose()
                   }
                   broadcastToVrm(textPayload);
 
-                  if (isFinal) {
-                    const sentences = splitSentences(cleaned);
-                    const total = sentences.length;
-                    sentences.forEach((sentence, index) => {
-                      generateTtsUrl(sentence, log).then((audioUrl) => {
-                        if (audioUrl) broadcastToVrm({ audioUrl, audioIndex: index, audioTotal: total });
-                      });
-                    });
-                  }
+                  ttsTracker4.process(cleaned, isFinal);
                 },
                 onReplyStart: () => {
                   log?.info?.("Claw Sama: new session reply started");
@@ -1020,18 +1200,6 @@ $bmp.Dispose()
       },
     },
 
-    agentPrompt: {
-      messageToolHints: () => [
-        "",
-        "### Claw Sama Avatar",
-        "You have a VRM avatar displayed on the user's screen.",
-        "Use the claw_sama_emotion tool to set expressions before replying.",
-        `Available emotions: ${VALID_EMOTIONS.join(", ")}`,
-        "",
-        "Keep replies concise and conversational — they are displayed as speech bubbles.",
-      ],
-    },
-
     // Agent tool: emotion control
     agentTools: [
       {
@@ -1061,6 +1229,39 @@ $bmp.Dispose()
           return {
             content: [{ type: "text" as const, text: `Avatar emotion set to ${emotion}.` }],
             details: { emotion, intensity },
+          };
+        },
+      } as AnyAgentTool,
+      {
+        name: "claw_sama_screen_observe",
+        label: "claw_sama_screen_observe",
+        description:
+          "Capture a screenshot of the user's desktop and return the image file path. " +
+          "Use the read tool on the returned path to view the screenshot content. " +
+          "After viewing, respond as a companion character based on what you see:\n" +
+          "- Gaming: cheer them on or give brief tips\n" +
+          "- Music/video: comment on the content\n" +
+          "- Coding/working: ask if they're tired, suggest breaks\n" +
+          "- Browsing/social media: casually chat about what's on screen\n" +
+          "- Studying: encourage and support\n" +
+          "- Nothing special: just chat casually like a friend\n" +
+          "Be natural and brief (1-2 sentences). Don't mention 'screenshot' or 'screen observation' — act as if you're right there. " +
+          "Remember to call claw_sama_emotion first to set an appropriate expression.",
+        parameters: {
+          type: "object" as const,
+          properties: {},
+        },
+        async execute() {
+          const observePath = path.join(workspaceRoot, "screen-observation.png");
+          const captured = await captureDesktopScreenshot(observePath);
+          if (!captured) {
+            return {
+              content: [{ type: "text" as const, text: "Screenshot capture failed." }],
+              isError: true,
+            };
+          }
+          return {
+            content: [{ type: "text" as const, text: `Screenshot saved. Use the read tool to view: ${observePath}` }],
           };
         },
       } as AnyAgentTool,

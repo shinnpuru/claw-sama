@@ -178,6 +178,22 @@ export default function App() {
     return () => clearInterval(timer)
   }, [screenObserve, screenObserveInterval])
 
+  // Capture VRM screenshot and upload to server (debounced to avoid duplicates)
+  const screenshotTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const uploadVrmScreenshot = useCallback(() => {
+    if (screenshotTimer.current) clearTimeout(screenshotTimer.current)
+    screenshotTimer.current = setTimeout(() => {
+      screenshotTimer.current = null
+      const dataUrl = sceneRef.current?.captureScreenshot()
+      if (!dataUrl) return
+      fetch(`${OPENCLAW_URL}/plugins/claw-sama/persona/screenshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      }).catch(() => {})
+    }, 500)
+  }, [])
+
   const clearContext = async () => {
     try {
       await fetch(`${OPENCLAW_URL}/plugins/claw-sama/context/clear`, { method: 'POST' })
@@ -263,7 +279,7 @@ export default function App() {
       }}
     >
       <ResizeHandles />
-      <VRMScene ref={sceneRef} modelPath={modelPath} onTouch={handleTouch} />
+      <VRMScene ref={sceneRef} modelPath={modelPath} onTouch={handleTouch} onModelLoaded={uploadVrmScreenshot} />
       <TextBubble onMessage={handleVrmMessageWithActivity} enabled={showText} ttsEnabled={ttsEnabled} />
       {!hideUI && <ChatInput uiAlign={uiAlign} onHistoryOpen={() => setHistoryOpen(true)} onNewSession={clearContext} />}
       <HistoryPanel

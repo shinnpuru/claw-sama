@@ -24,12 +24,13 @@ export interface ClawSamaPrefs {
 const _srcDir = typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 export const EXT_DIR = path.resolve(_srcDir, "..");
 
-// Workspace root — same logic used by channel.ts
+// Workspace roots
 const profile = process.env.OPENCLAW_PROFILE?.trim();
 const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-export const workspaceRoot = (profile && profile.toLowerCase() !== "default")
+export const openclawWorkspaceRoot = (profile && profile.toLowerCase() !== "default")
   ? path.join(homeDir, ".openclaw", `workspace-${profile}`)
   : path.join(homeDir, ".openclaw", "workspace");
+export const workspaceRoot = path.join(openclawWorkspaceRoot, "claw-sama");
 
 const PREFS_PATH = path.join(workspaceRoot, "clawsama.json");
 
