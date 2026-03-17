@@ -7,19 +7,23 @@ import { ChatInput } from './components/ChatInput'
 import { ResizeHandles } from './components/ResizeHandles'
 import { SettingsPanel } from './components/SettingsPanel'
 import { usePassThrough } from './hooks/usePassThrough'
+import { dancePresets } from './motion-controller'
 import { LipSync } from './lip-sync'
 import { bindScene } from './api'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import { HistoryPanel } from './components/HistoryPanel'
+import { MoodIndicator } from './components/MoodIndicator'
 import { Menu, Pin, Move, RotateCcw, Rotate3D, EyeOff, Settings, Music } from 'lucide-react'
 
 const DEFAULT_MODEL = '/model1.vrm'
 const OPENCLAW_URL = 'http://127.0.0.1:18789'
 
 // Module-level to survive any component remount
+let lastTouchMemoTime = 0
+const TOUCH_MEMO_COOLDOWN = 3_000
 let lastTouchChatTime = 0
-const TOUCH_CHAT_COOLDOWN = 30_000
+const TOUCH_CHAT_COOLDOWN = 60_000
 
 // 情绪 → 动作映射 (action names from motion-controller presets)
 const emotionActionMap: Record<string, string> = {
@@ -66,14 +70,16 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [hideUI, setHideUI] = useState(false)
-  const [volume, setVolume] = useState(1)
+  const [volume, setVolume] = useState(0.5)
   const [uiAlign, setUiAlign] = useState<'left' | 'right'>('right')
   const [dancing, setDancing] = useState(false)
   const [currentDance, setCurrentDance] = useState('jile')
   const [customDancePreset, setCustomDancePreset] = useState<import('./motion-controller').DancePreset | undefined>(undefined)
+  const [hideMood, setHideMood] = useState(false)
   const [screenObserve, setScreenObserve] = useState(false)
   const [screenObserveInterval, setScreenObserveInterval] = useState(60)
   const [language, setLanguage] = useState<'zh' | 'en'>(() => navigator.language.startsWith('zh') ? 'zh' : 'en')
+  const t = (zh: string, en: string) => language === 'en' ? en : zh
   usePassThrough(!settingsOpen && !historyOpen)
 
   // Load persisted settings on mount
@@ -88,6 +94,7 @@ export default function App() {
         if (s.tracking) { setTracking(s.tracking); sceneRef.current?.setTrackingMode(s.tracking) }
         if (s.volume !== undefined) { setVolume(s.volume); LipSync.getInstance().setVolume(s.volume); sceneRef.current?.setBgmVolume(s.volume) }
         if (s.uiAlign) setUiAlign(s.uiAlign)
+        if (s.hideMood !== undefined) setHideMood(s.hideMood)
         if (s.screenObserve !== undefined) setScreenObserve(s.screenObserve)
         if (s.screenObserveInterval !== undefined) setScreenObserveInterval(s.screenObserveInterval)
         if (s.currentDance) setCurrentDance(s.currentDance)
@@ -193,6 +200,19 @@ export default function App() {
     return () => clearInterval(timer)
   }, [])
 
+  // ── Dancing mood boost: +1 every 30s ─────────
+  useEffect(() => {
+    if (!dancing) return
+    const timer = setInterval(() => {
+      fetch(`${OPENCLAW_URL}/plugins/claw-sama/mood/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta: 1, max: 90 }),
+      }).catch(() => {})
+    }, 30_000)
+    return () => clearInterval(timer)
+  }, [dancing])
+
   // ── Screen observation: capture desktop & send to LLM periodically ─────────
   useEffect(() => {
     if (!screenObserve) return
@@ -288,9 +308,9 @@ export default function App() {
     ],
   }
 
-  const regionLabels: Record<TouchRegion, string> = {
-    head: '头', arm: '手臂', chest: '胸', belly: '肚子', buttocks: '屁股', leg: '腿',
-  }
+  const regionLabels: Record<TouchRegion, string> = language === 'en'
+    ? { head: 'head', arm: 'arm', chest: 'chest', belly: 'belly', buttocks: 'buttocks', leg: 'leg' }
+    : { head: '头', arm: '手臂', chest: '胸', belly: '肚子', buttocks: '屁股', leg: '腿' }
 
   const handleTouch = useCallback((region: TouchRegion) => {
     const reactions = touchReactions[region]
@@ -302,12 +322,24 @@ export default function App() {
     sceneRef.current?.setEmotionWithReset(visual.emotion, 3000, 0.8)
     if (visual.action) sceneRef.current?.playAction(visual.action)
 
-    // Send to backend for verbal response (rate-limited, module-level cooldown)
     const now = Date.now()
-    if (now - lastTouchChatTime > TOUCH_CHAT_COOLDOWN && Math.random() < 0.2) {
-      lastTouchChatTime = now
-      const prompt = `[用户摸了摸你的${regionLabels[region]}]`
+    const prompt = language === 'en'
+      ? `[The user touched your ${regionLabels[region]}]`
+      : `[用户摸了摸你的${regionLabels[region]}]`
 
+    // Always write to session history (3s cooldown)
+    if (now - lastTouchMemoTime > TOUCH_MEMO_COOLDOWN) {
+      lastTouchMemoTime = now
+      fetch(`${OPENCLAW_URL}/plugins/claw-sama/session/memo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: prompt }),
+      }).catch(() => {})
+    }
+
+    // Send to backend for verbal response (60s cooldown, 50% chance)
+    if (now - lastTouchChatTime > TOUCH_CHAT_COOLDOWN && Math.random() < 0.5) {
+      lastTouchChatTime = now
       fetch(`${OPENCLAW_URL}/plugins/claw-sama/touch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -335,17 +367,19 @@ export default function App() {
     >
       <ResizeHandles />
       <VRMScene ref={sceneRef} modelPath={modelPath} onTouch={handleTouch} onModelLoaded={uploadVrmScreenshot} />
+      {!hideMood && <MoodIndicator language={language} />}
       <TextBubble onMessage={handleVrmMessageWithActivity} enabled={showText} ttsEnabled={ttsEnabled} />
-      {!hideUI && <ChatInput uiAlign={uiAlign} onHistoryOpen={() => setHistoryOpen(true)} onNewSession={clearContext} />}
+      {!hideUI && <ChatInput uiAlign={uiAlign} onHistoryOpen={() => setHistoryOpen(true)} onNewSession={clearContext} language={language} />}
       <HistoryPanel
         visible={historyOpen}
         onClose={() => setHistoryOpen(false)}
+        language={language}
       />
       <SettingsPanel
         visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         currentModel={modelPath}
-        onModelChange={(m) => { setModelPath(m); saveSettings({ modelPath: m }) }}
+        onModelChange={(m) => { setModelPath(m); setDancing(false); saveSettings({ modelPath: m }) }}
         hideUI={hideUI}
         onHideUIChange={(v) => { setHideUI(v); saveSettings({ hideUI: v }) }}
         showText={showText}
@@ -358,6 +392,8 @@ export default function App() {
         onVolumeChange={handleVolumeChange}
         uiAlign={uiAlign}
         onUiAlignChange={(v) => { setUiAlign(v); saveSettings({ uiAlign: v }) }}
+        hideMood={hideMood}
+        onHideMoodChange={(v) => { setHideMood(v); saveSettings({ hideMood: v }) }}
         screenObserve={screenObserve}
         onScreenObserveChange={(v) => { setScreenObserve(v); saveSettings({ screenObserve: v }) }}
         screenObserveInterval={screenObserveInterval}
@@ -385,7 +421,7 @@ export default function App() {
         <button
           onClick={() => setCollapsed((v) => !v)}
           style={btnStyle}
-          title={collapsed ? '展开菜单 (Tab)' : '折叠菜单 (Tab)'}
+          title={collapsed ? t('展开菜单 (Tab)', 'Expand Menu (Tab)') : t('折叠菜单 (Tab)', 'Collapse Menu (Tab)')}
         >
           <Menu size={16} />
         </button>
@@ -393,21 +429,21 @@ export default function App() {
           <button
             onClick={() => setSettingsOpen(true)}
             style={btnStyle}
-            title="设置"
+            title={t('设置', 'Settings')}
           >
             <Settings size={16} />
           </button>
           <button
             onClick={() => getCurrentWindow().hide()}
             style={btnStyle}
-            title="隐藏窗口"
+            title={t('隐藏窗口', 'Hide Window')}
           >
             <EyeOff size={16} />
           </button>
           <button
             onClick={togglePin}
             style={{ ...btnStyle, opacity: pinned ? 1 : 0.5 }}
-            title={pinned ? '取消置顶' : '置顶窗口'}
+            title={pinned ? t('取消置顶', 'Unpin') : t('置顶窗口', 'Pin to Top')}
           >
             <Pin size={16} />
           </button>
@@ -431,7 +467,7 @@ export default function App() {
               window.addEventListener('mouseup', onUp)
             }}
             style={{ ...btnStyle, cursor: 'grab' }}
-            title="拖动移动人物位置"
+            title={t('拖动移动人物位置', 'Drag to Move')}
           >
             <Move size={16} />
           </button>
@@ -455,36 +491,45 @@ export default function App() {
               window.addEventListener('mouseup', onUp)
             }}
             style={{ ...btnStyle, cursor: 'grab' }}
-            title="拖动旋转视角"
+            title={t('拖动旋转视角', 'Drag to Rotate')}
           >
             <Rotate3D size={16} />
           </button>
           <button
-            onClick={() => sceneRef.current?.resetCamera()}
+            onClick={() => { sceneRef.current?.reset(); setDancing(false) }}
             style={btnStyle}
-            title="重置视角"
+            title={t('重置视角', 'Reset View')}
           >
             <RotateCcw size={16} />
           </button>
           <button
             onClick={() => {
               if (dancing) {
-                sceneRef.current?.stopDance()
+                sceneRef.current?.reset()
                 setDancing(false)
               } else {
+                const label = currentDance.startsWith('custom:') && customDancePreset
+                  ? customDancePreset.label
+                  : dancePresets[currentDance]?.label ?? currentDance
                 if (currentDance.startsWith('custom:') && customDancePreset) {
                   sceneRef.current?.playDance(customDancePreset)
                 } else {
                   sceneRef.current?.playDance(currentDance)
                 }
                 setDancing(true)
+                // Record dance event in session history (no LLM reply)
+                fetch(`${OPENCLAW_URL}/plugins/claw-sama/session/memo`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text: `[用户邀请你跳了一支舞:${label}]` }),
+                }).catch(() => {})
               }
             }}
             style={{
               ...btnStyle,
               ...(dancing ? { background: 'rgba(34, 197, 94, 0.6)' } : {}),
             }}
-            title={dancing ? '停止跳舞' : '跳舞'}
+            title={dancing ? t('停止跳舞', 'Stop Dance') : t('跳舞', 'Dance')}
           >
             <Music size={16} />
           </button>

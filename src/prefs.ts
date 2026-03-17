@@ -27,6 +27,7 @@ export interface ClawSamaPrefs {
     url: string;
     bgm?: string;
   };
+  hideMood?: boolean;
 }
 
 const _srcDir = typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));

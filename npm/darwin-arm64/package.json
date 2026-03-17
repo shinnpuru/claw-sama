@@ -1,10 +1,10 @@
 {
   "name": "@luckybugqqq/claw-sama-darwin-arm64",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "description": "Claw Sama binary for macOS ARM64",
   "license": "MIT",
   "os": ["darwin"],
   "cpu": ["arm64"],
-  "files": ["claw-sama"],
+  "files": ["Claw Sama.app"],
   "preferUnplugged": true
 }

@@ -77,8 +77,22 @@ export class LipSync {
       await this.audioContext.resume()
     }
 
-    const response = await fetch(url)
+    let response: Response
+    try {
+      response = await fetch(url)
+    } catch (err) {
+      console.error('[LipSync] fetch failed:', url, err)
+      return 0
+    }
+    if (!response.ok) {
+      console.error('[LipSync] fetch error:', url, response.status)
+      return 0
+    }
     const arrayBuffer = await response.arrayBuffer()
+    if (arrayBuffer.byteLength === 0) {
+      console.error('[LipSync] empty response:', url)
+      return 0
+    }
     const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer)
 
     const source = this.audioContext.createBufferSource()

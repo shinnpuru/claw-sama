@@ -5,32 +5,13 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 const OPENCLAW_URL = 'http://127.0.0.1:18789/plugins/claw-sama/chat'
 
-// Inject input bar animation keyframes once
-const INPUT_STYLE_ID = 'claw-input-keyframes'
-if (!document.getElementById(INPUT_STYLE_ID)) {
-  const style = document.createElement('style')
-  style.id = INPUT_STYLE_ID
-  style.textContent = `
-    @keyframes claw-input-slide-up {
-      0% { opacity: 0; transform: translateY(20px) scale(0.95); }
-      100% { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    @keyframes claw-input-slide-down {
-      0% { opacity: 1; transform: translateY(0) scale(1); }
-      100% { opacity: 0; transform: translateY(20px) scale(0.95); }
-    }
-    @keyframes claw-pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-  `
-  document.head.appendChild(style)
-}
+// Keyframes (claw-input-slide-up, claw-input-slide-down, claw-pulse) are in index.html <style>
 
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 const USE_NATIVE_STT = !SpeechRecognition
 
-export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', onHistoryOpen, onNewSession }: { visible?: boolean; onActiveChange?: (hasText: boolean) => void; uiAlign?: 'left' | 'right'; onHistoryOpen?: () => void; onNewSession?: () => void }) {
+export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', onHistoryOpen, onNewSession, language = 'zh' }: { visible?: boolean; onActiveChange?: (hasText: boolean) => void; uiAlign?: 'left' | 'right'; onHistoryOpen?: () => void; onNewSession?: () => void; language?: 'zh' | 'en' }) {
+  const t = (zh: string, en: string) => language === 'en' ? en : zh
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -47,6 +28,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
 
   const closeBar = useCallback(() => {
     if (closing) return
+    setMenuOpen(false)
     setClosing(true)
     setTimeout(() => { setOpen(false); setClosing(false) }, 220)
   }, [closing])
@@ -152,7 +134,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
   const SOFT_PUNCT = /[，、；,;：:]$/           // send if long enough
   const SOFT_PUNCT_MIN_LEN = 10               // min chars before soft punct triggers send
   const MAX_UNSENT_LEN = 30                   // force send when accumulated text is this long
-  const SILENCE_SEND_MS = 2000                // silence fallback timeout
+  const SILENCE_SEND_MS = 1200                // silence fallback timeout
   const VAD_RMS_THRESHOLD = 0.015             // RMS below this = silence
   const VAD_SILENCE_TIMEOUT_MS = 15_000       // stop STT after 15s silence
 
@@ -214,20 +196,23 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
     // Reset silence send timer on any result
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null }
 
-    if (!isFinal) return
+    if (isFinal) {
+      const shouldSend =
+        HARD_PUNCT.test(unsent) ||                                       // hard punctuation
+        (SOFT_PUNCT.test(unsent) && unsent.length >= SOFT_PUNCT_MIN_LEN) || // soft punct + long enough
+        unsent.length >= MAX_UNSENT_LEN                                  // word count overflow
 
-    const shouldSend =
-      HARD_PUNCT.test(unsent) ||                                       // hard punctuation
-      (SOFT_PUNCT.test(unsent) && unsent.length >= SOFT_PUNCT_MIN_LEN) || // soft punct + long enough
-      unsent.length >= MAX_UNSENT_LEN                                  // word count overflow
+      if (shouldSend) {
+        voiceCallSend(unsent)
+        lastSentIndexRef.current = fullTranscript.length
+        setText('')
+        onActiveChange?.(false)
+        return
+      }
+    }
 
-    if (shouldSend) {
-      voiceCallSend(unsent)
-      lastSentIndexRef.current = fullTranscript.length
-      setText('')
-      onActiveChange?.(false)
-    } else if (unsent.trim()) {
-      // Silence fallback
+    // Silence fallback: start timer on both partial and final results
+    if (unsent.trim()) {
       silenceTimerRef.current = setTimeout(() => {
         if (!voiceCallActiveRef.current) return
         const chunk = unsent.trim()
@@ -275,7 +260,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
             // Interrupt TTS after 1s delay when user starts speaking
             scheduleInterrupt()
           }
-        } else if (vadSpeakingRef.current && performance.now() - lastSpeechTime > 800) {
+        } else if (vadSpeakingRef.current && performance.now() - lastSpeechTime > 500) {
           vadSpeakingRef.current = false
           cancelInterrupt()
           setVadSpeaking(false)
@@ -434,6 +419,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
       if (e.key === 'Enter' && !e.shiftKey && !inInput) {
         e.preventDefault()
         if (!open) {
+          setMenuOpen(false)
           setOpen(true)
         }
         setTimeout(() => inputRef.current?.focus(), 50)
@@ -474,17 +460,18 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
         <button
           onClick={startVoiceCall}
           style={fabStyle}
-          title="语音通话 (F2)"
+          title={t('语音通话 (F2)', 'Voice Call (F2)')}
         >
           <Phone size={16} />
         </button>
         <button
           onClick={() => {
+            setMenuOpen(false)
             setOpen(true)
             setTimeout(() => inputRef.current?.focus(), 50)
           }}
           style={fabStyle}
-          title="发送消息 (Enter)"
+          title={t('发送消息 (Enter)', 'Send Message (Enter)')}
         >
           <MessageCircle size={16} />
         </button>
@@ -500,7 +487,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
           <button
             onClick={() => setMenuOpen((v) => !v)}
             style={{ ...inlineBtnLeft, color: menuOpen ? 'rgba(100, 160, 255, 0.9)' : 'rgba(255, 255, 255, 0.45)' }}
-            title="更多"
+            title={t('更多', 'More')}
           >
             <Plus size={22} />
           </button>
@@ -509,11 +496,11 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
             <div style={popupMenuStyle}>
               <button onClick={() => { setMenuOpen(false); onHistoryOpen?.() }} style={popupItemStyle}>
                 <History size={14} />
-                <span>对话历史</span>
+                <span>{t('对话历史', 'History')}</span>
               </button>
               <button onClick={() => { setMenuOpen(false); onNewSession?.() }} style={popupItemStyle}>
                 <SquarePen size={14} />
-                <span>新会话</span>
+                <span>{t('新会话', 'New Chat')}</span>
               </button>
             </div>
           )}
@@ -529,7 +516,8 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
             data-no-passthrough
           >
             <span style={{ color: text ? '#fff' : 'rgba(255, 255, 255, 0.45)', fontSize: 18, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif' }}>
-              {text || (vadSpeaking ? '正在听...' : '等待说话...')}
+              {text || (vadSpeaking ? t('正在听...', 'Listening...') : t('等待说话...', 'Waiting to speak...'))}
+
             </span>
           </div>
           {/* 右侧：麦克风指示 + 挂断 */}
@@ -548,7 +536,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
           <button
             onClick={endVoiceCall}
             style={{ ...inlineBtnRight, right: 12, color: 'rgba(255, 80, 80, 0.9)' }}
-            title="挂断 (F2)"
+            title={t('挂断 (F2)', 'Hang up (F2)')}
           >
             <PhoneOff size={22} />
           </button>
@@ -573,7 +561,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
         <button
           onClick={() => setMenuOpen((v) => !v)}
           style={{ ...inlineBtnLeft, color: menuOpen ? 'rgba(100, 160, 255, 0.9)' : 'rgba(255, 255, 255, 0.45)' }}
-          title="更多"
+          title={t('更多', 'More')}
         >
           <Plus size={22} />
         </button>
@@ -582,11 +570,11 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
           <div style={popupMenuStyle}>
             <button onClick={() => { setMenuOpen(false); onHistoryOpen?.() }} style={popupItemStyle}>
               <History size={14} />
-              <span>对话历史</span>
+              <span>{t('对话历史', 'History')}</span>
             </button>
             <button onClick={() => { setMenuOpen(false); onNewSession?.() }} style={popupItemStyle}>
               <SquarePen size={14} />
-              <span>新会话</span>
+              <span>{t('新会话', 'New Chat')}</span>
             </button>
           </div>
         )}
@@ -598,7 +586,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
             onActiveChange?.(e.target.value.length > 0)
           }}
           onKeyDown={handleKeyDown}
-          placeholder={sending ? '思考中...' : ''}
+          placeholder={sending ? t('思考中...', 'Thinking...') : ''}
           disabled={sending}
           style={{ ...inputStyle, paddingLeft: 48, paddingRight: 80 }}
           autoFocus
@@ -609,7 +597,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
           onMouseUp={stopRecording}
           onMouseLeave={handleMouseLeave}
           style={{ ...inlineBtnRight, right: 44, color: recording ? 'rgba(255, 80, 80, 0.9)' : 'rgba(255, 255, 255, 0.45)' }}
-          title="按住说话"
+          title={t('按住说话', 'Hold to speak')}
         >
           <Mic size={22} />
         </button>
@@ -617,7 +605,7 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
           onClick={() => text.trim() ? send() : closeBar()}
           disabled={sending}
           style={{ ...inlineBtnRight, right: 12, color: text.trim() ? 'rgba(100, 160, 255, 0.9)' : 'rgba(255, 255, 255, 0.45)' }}
-          title={text.trim() ? '发送 (Enter)' : '收起 (Esc)'}
+          title={text.trim() ? t('发送 (Enter)', 'Send (Enter)') : t('收起 (Esc)', 'Collapse (Esc)')}
         >
           {sending ? <Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /> : text.trim() ? <Send size={22} /> : <ChevronDown size={22} />}
         </button>

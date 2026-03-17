@@ -179,6 +179,24 @@ export class EmoteController {
     }
   }
 
+  /** Reset all expressions to zero (idle state) without transition. */
+  resetAll() {
+    if (this.resetTimer) {
+      clearTimeout(this.resetTimer)
+      this.resetTimer = null
+    }
+    this.isTransitioning = false
+    this.currentEmotion = null
+    if (this.vrm.expressionManager) {
+      const names = Object.keys(this.vrm.expressionManager.expressionMap)
+      for (const name of names) {
+        this.vrm.expressionManager.setValue(name, 0)
+      }
+    }
+    this.currentValues.clear()
+    this.targetValues.clear()
+  }
+
   dispose() {
     if (this.resetTimer) {
       clearTimeout(this.resetTimer)

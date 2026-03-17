@@ -29,6 +29,8 @@ interface SettingsPanelProps {
   onVolumeChange: (v: number) => void
   uiAlign: 'left' | 'right'
   onUiAlignChange: (v: 'left' | 'right') => void
+  hideMood: boolean
+  onHideMoodChange: (v: boolean) => void
   screenObserve: boolean
   onScreenObserveChange: (v: boolean) => void
   screenObserveInterval: number
@@ -87,8 +89,7 @@ const QWEN_VOICES = [
 ]
 
 const QWEN_MODELS = [
-  { id: 'qwen3-tts-flash', label: '千问3 TTS Flash' },
-  { id: 'qwen3-tts-instruct-flash', label: '千问3 TTS Instruct Flash (指令控制)' },
+  { id: 'qwen3-tts-flash', label: 'Qwen3 TTS Flash' },
 ]
 
 export function SettingsPanel({
@@ -99,6 +100,7 @@ export function SettingsPanel({
   tracking, onTrackingChange,
   volume, onVolumeChange,
   uiAlign, onUiAlignChange,
+  hideMood, onHideMoodChange,
   screenObserve, onScreenObserveChange,
   screenObserveInterval, onScreenObserveIntervalChange,
   captureVrmScreenshot,
@@ -415,6 +417,7 @@ export function SettingsPanel({
                 </div>
               </div>
               <ToggleRow label={t('隐藏UI', 'Hide UI')} value={hideUI} onChange={onHideUIChange} />
+              <ToggleRow label={t('隐藏心情条', 'Hide Mood Bar')} value={hideMood} onChange={onHideMoodChange} />
               <ToggleRow label={t('屏幕观察', 'Screen Observe')} value={screenObserve} onChange={onScreenObserveChange} />
               {screenObserve && (
                 <>
@@ -456,7 +459,7 @@ export function SettingsPanel({
                       borderColor: p === currentProvider ? 'rgba(100, 160, 255, 0.6)' : 'rgba(255, 255, 255, 0.15)',
                     }}
                   >
-                    {{ edge: 'Edge', qwen: '千问 TTS' }[p]}
+                    {{ edge: 'Edge', qwen: t('千问 TTS', 'Qwen TTS') }[p]}
                   </button>
                 ))}
               </div>
@@ -530,7 +533,7 @@ export function SettingsPanel({
                           opacity: previewingId !== null && previewingId !== v.id ? 0.3 : 0.7,
                           transition: 'background 0.15s',
                         }}
-                        title="试听"
+                        title={t('试听', 'Preview')}
                       >
                         {previewingId === v.id ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Play size={13} />}
                       </div>
@@ -549,7 +552,7 @@ export function SettingsPanel({
                 onChange={(e) => { onModelChange(e.target.value); saveModelPath(e.target.value) }}
                 style={selectStyle}
               >
-                {!BUILTIN_MODELS.includes(currentModel) && <option value="" disabled>未选择</option>}
+                {!BUILTIN_MODELS.includes(currentModel) && <option value="" disabled>{t('未选择', 'Not selected')}</option>}
                 {BUILTIN_MODELS.map((m) => (
                   <option key={m} value={m}>{m.replace(/^\//, '')}</option>
                 ))}
@@ -563,7 +566,7 @@ export function SettingsPanel({
                     onChange={(e) => { onModelChange(e.target.value); saveModelPath(e.target.value) }}
                     style={selectStyle}
                   >
-                    {BUILTIN_MODELS.includes(currentModel) && <option value="" disabled>未选择</option>}
+                    {BUILTIN_MODELS.includes(currentModel) && <option value="" disabled>{t('未选择', 'Not selected')}</option>}
                     {models.map((m) => (
                       <option key={m} value={m}>{decodeURIComponent(m.split('/').pop() || m)}</option>
                     ))}
@@ -640,7 +643,7 @@ export function SettingsPanel({
                     gap: 4,
                     background: generating ? 'rgba(100, 160, 255, 0.3)' : 'rgba(160, 120, 255, 0.5)',
                   }}
-                  title="根据当前模型截图自动生成人设"
+                  title={t('根据当前模型截图自动生成人设', 'Auto-generate persona from model screenshot')}
                 >
                   {generating
                     ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
@@ -753,7 +756,7 @@ export function SettingsPanel({
                             flexShrink: 0,
                             opacity: 0.5,
                           }}
-                          title="删除"
+                          title={t('删除', 'Delete')}
                         >
                           <Trash2 size={13} />
                         </div>

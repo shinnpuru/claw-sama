@@ -16,28 +16,30 @@ interface VrmMessage {
 
 export type OnVrmMessage = (msg: VrmMessage) => void
 
-const CHAR_RATE_MS = 60
-const TTS_CHAR_RATE_MS = 180   // slower rate when TTS enabled (~5-6 chars/sec, close to Chinese speech pace)
+// CJK detection: check proportion of CJK characters in text
+function cjkRatio(text: string): number {
+  const CJK_RE = /[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef\u3040-\u309f\u30a0-\u30ff]/g
+  const matches = text.match(CJK_RE)
+  return matches ? matches.length / text.length : 0
+}
+
+// Dynamic rate based on CJK proportion
+function getCharRate(text: string, ttsEnabled: boolean): number {
+  const ratio = cjkRatio(text)
+  if (ttsEnabled) {
+    // CJK: 200ms/char, English: 60ms/char, interpolate
+    return Math.round(200 * ratio + 60 * (1 - ratio))
+  }
+  // CJK: 80ms/char, English: 30ms/char, interpolate
+  return Math.round(80 * ratio + 30 * (1 - ratio))
+}
 const HIDE_DELAY_MS = 2000     // delay after everything is done before hiding
 const POP_DURATION_MS = 300
 
 // Grapheme segmenter singleton
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
-// Inject pop animation keyframes once
-const STYLE_ID = 'claw-pop-keyframes'
-if (!document.getElementById(STYLE_ID)) {
-  const style = document.createElement('style')
-  style.id = STYLE_ID
-  style.textContent = `
-    @keyframes claw-pop-in {
-      0% { opacity: 0; transform: scale(0) translateY(0.5em); }
-      60% { opacity: 1; transform: scale(1.15) translateY(-0.05em); }
-      100% { opacity: 1; transform: scale(1) translateY(0); }
-    }
-  `
-  document.head.appendChild(style)
-}
+// Keyframes (claw-pop-in) are in index.html <style>
 
 export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { onMessage?: OnVrmMessage; enabled?: boolean; ttsEnabled?: boolean }) {
   const [text, setText] = useState('')
@@ -219,7 +221,7 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
       : 0
     setCharCount(startFrom)
 
-    const baseRate = ttsEnabled ? TTS_CHAR_RATE_MS : CHAR_RATE_MS
+    const baseRate = getCharRate(fullText, ttsEnabled)
 
     const startTypewriter = (audioDurationMs?: number) => {
       const remainingChars = graphemes.length - startFrom

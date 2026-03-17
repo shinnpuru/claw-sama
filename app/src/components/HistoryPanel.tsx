@@ -13,9 +13,11 @@ interface HistoryMessage {
 interface HistoryPanelProps {
   visible: boolean
   onClose: () => void
+  language?: 'zh' | 'en'
 }
 
-export function HistoryPanel({ visible, onClose }: HistoryPanelProps) {
+export function HistoryPanel({ visible, onClose, language = 'zh' }: HistoryPanelProps) {
+  const t = (zh: string, en: string) => language === 'en' ? en : zh
   const [messages, setMessages] = useState<HistoryMessage[]>([])
   const [agentName, setAgentName] = useState('')
   const [loading, setLoading] = useState(false)
@@ -81,7 +83,7 @@ export function HistoryPanel({ visible, onClose }: HistoryPanelProps) {
     <div style={overlayStyle} data-no-passthrough onClick={onClose}>
       <div style={{ ...panelStyle, transform: `translate(${panelPos.x}px, ${panelPos.y}px)` }} data-no-passthrough onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle} onMouseDown={onDragStart}>
-          <span style={{ fontSize: 16, fontWeight: 600, cursor: 'grab' }}>对话历史</span>
+          <span style={{ fontSize: 16, fontWeight: 600, cursor: 'grab' }}>{t('对话历史', 'Chat History')}</span>
           <button onClick={onClose} style={closeBtnStyle}>
             <X size={16} />
           </button>
@@ -89,15 +91,15 @@ export function HistoryPanel({ visible, onClose }: HistoryPanelProps) {
 
         <div ref={scrollRef} style={messagesContainerStyle}>
           {loading && (
-            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 20 }}>加载中...</div>
+            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 20 }}>{t('加载中...', 'Loading...')}</div>
           )}
           {!loading && messages.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 20 }}>暂无对话记录</div>
+            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 20 }}>{t('暂无对话记录', 'No chat history')}</div>
           )}
           {messages.map((msg, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>
-                {msg.role === 'user' ? '你' : (agentName || 'AI')}
+                {msg.role === 'user' ? t('你', 'You') : (agentName || 'AI')}
               </div>
               <div style={{
                 ...bubbleStyle,

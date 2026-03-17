@@ -9,11 +9,11 @@ import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import type { AnyAgentTool } from "openclaw/plugin-sdk";
 import { getClawSamaRuntime } from "./runtime.js";
 import { broadcastToVrm, addSseClient, removeSseClient, type VrmBroadcastPayload } from "./sse.js";
-import { stripThinking, stripActions, stripMarkdown, stripEmoji, splitSentences, VALID_EMOTIONS } from "./text-utils.js";
+import { stripThinking, stripActions, stripMarkdown, stripEmoji, stripForTts, splitSentences, VALID_EMOTIONS } from "./text-utils.js";
 import { edgeTts, qwenTts, registerAudioFile, getAudioFile } from "./tts.js";
 import { getPrefs, updatePrefs, setPrefs, EXT_DIR, workspaceRoot, openclawWorkspaceRoot } from "./prefs.js";
 import type { ClawSamaPrefs } from "./prefs.js";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
@@ -63,13 +63,16 @@ export const CLAW_SAMA_ROUTES: ClawSamaRouteSpec[] = [
   { path: "/plugins/claw-sama/dance/delete" },
   { path: "/plugins/claw-sama/history" },
   { path: "/plugins/claw-sama/context/clear" },
+  { path: "/plugins/claw-sama/mood/adjust" },
+  { path: "/plugins/claw-sama/session/memo" },
 ];
 
 export function buildClawSamaSystemPrompt(): string {
+  const moodIndex = currentMood;
   const lines = [
-    "You have a virtual VRM avatar displayed on the user's screen. Your reply text is automatically shown on the avatar.",
-    `To control the avatar's facial expression, use the "claw_sama_emotion" tool with an appropriate emotion.`,
-    `Always call the tool BEFORE your text reply. Available emotions: ${VALID_EMOTIONS.join(", ")}.`,
+    `You have a virtual VRM avatar displayed on the user's screen. Use the "claw_sama_emotion" tool to control your facial expression. Always call it BEFORE your text reply. Available emotions: ${VALID_EMOTIONS.join(", ")}.`,
+    `The tool also accepts a "mood_delta" parameter (-3 to +3) to adjust YOUR OWN mood index. Always include it based on how the conversation makes YOU feel as a character.`,
+    `Your current mood index: ${moodIndex}% (0=very sad, 50=neutral, 100=very happy). This reflects YOUR emotional state. React naturally — if the user is kind, your mood goes up; if they're mean or the topic is depressing, your mood drops.`,
     "The user's input may come from speech recognition and could contain typos or homophones — infer the intended meaning from context.",
     "Keep replies concise and conversational — they are displayed as speech bubbles.",
   ];
@@ -112,7 +115,23 @@ $bmp.Dispose()
 }
 
 // Pending emotion buffer — tool stores here, deliver callback flushes with text
-let pendingEmotion: { emotion: string; intensity: number } | null = null;
+let pendingEmotion: { emotion: string; intensity: number; moodDelta?: number } | null = null;
+
+// Runtime mood state (not persisted)
+const MOOD_BASELINE = 60;
+const MOOD_DECAY_INTERVAL_MS = 60_000;
+let currentMood = MOOD_BASELINE;
+let lastMoodChangeTime = Date.now();
+
+// Mood decay: every 60s, move mood 1 point toward the baseline
+// Only decay if no mood change happened in the last 60s
+setInterval(() => {
+  if (Date.now() - lastMoodChangeTime < MOOD_DECAY_INTERVAL_MS) return;
+  if (currentMood === MOOD_BASELINE) return;
+  const delta = currentMood > MOOD_BASELINE ? -1 : 1;
+  currentMood = currentMood + delta;
+  broadcastToVrm({ moodDelta: delta, moodIndex: currentMood });
+}, MOOD_DECAY_INTERVAL_MS);
 
 // workspaceRoot imported from prefs.js
 
@@ -178,8 +197,11 @@ class StreamingTtsTracker {
     const allSentences = splitSentences(this.accumulatedText);
 
     // During streaming: only send TTS for sentences that are "complete"
-    // (i.e. all except the last one, which may still be growing)
-    const completeSentences = isFinal ? allSentences : allSentences.slice(0, -1);
+    // If the last sentence ends with sentence-ending punctuation, treat it as complete too
+    const SENTENCE_END_RE = /[。！？；.!?;]$/;
+    const lastSentence = allSentences[allSentences.length - 1] ?? "";
+    const lastIsComplete = isFinal || SENTENCE_END_RE.test(lastSentence.trim());
+    const completeSentences = lastIsComplete ? allSentences : allSentences.slice(0, -1);
     const newSentences = completeSentences.slice(this.sentencesSent);
     this.sentencesSent = completeSentences.length;
 
@@ -187,12 +209,12 @@ class StreamingTtsTracker {
 
     // Filter out sentences that produce empty TTS text (e.g. emoji-only, whitespace)
     // to avoid holes in the audio index sequence
-    const ttsWorthy = newSentences.filter((s) => stripMarkdown(stripEmoji(s)).length > 0);
+    const ttsWorthy = newSentences.filter((s) => stripForTts(s).length > 0);
     if (ttsWorthy.length === 0) return;
 
     // On final, compute total TTS-worthy sentences across the entire text
     const totalAudio = isFinal
-      ? allSentences.filter((s) => stripMarkdown(stripEmoji(s)).length > 0).length
+      ? allSentences.filter((s) => stripForTts(s).length > 0).length
       : 0;
 
     for (const sentence of ttsWorthy) {
@@ -212,7 +234,7 @@ class StreamingTtsTracker {
  */
 async function generateTtsUrl(text: string, log?: { warn: (msg: string) => void }): Promise<string | undefined> {
   const prefs = getPrefs();
-  const ttsText = stripMarkdown(stripEmoji(text));
+  const ttsText = stripForTts(text);
   if (!ttsText || /^[。！？；.!?;、，,…\s]+$/.test(ttsText)) return undefined;
 
   const provider = (prefs.provider === "qwen" && prefs.qwenKey) ? "qwen" : "edge";
@@ -227,6 +249,7 @@ async function generateTtsUrl(text: string, log?: { warn: (msg: string) => void 
         voice: prefs.voice,
         model: prefs.qwenModel,
         extDir: EXT_DIR,
+        language: prefs.language || "zh",
       });
     } else {
       result = await edgeTts({ text: ttsText, voice: prefs.voice });
@@ -354,6 +377,12 @@ export function createClawSamaPlugin() {
 
       sendMedia: async ({ to, text, mediaUrl }: any) => {
         console.log("[claw-sama] sendMedia called:", { to, mediaUrl, textLen: text?.length });
+        // Only support image files
+        const VALID_IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"];
+        const ext = path.extname(mediaUrl || "").toLowerCase();
+        if (!VALID_IMAGE_EXTS.includes(ext)) {
+          throw new Error(`Unsupported media type: ${ext}. Only images are supported.`);
+        }
         broadcastMediaUrl(mediaUrl);
         const cleaned = text ? stripActions(text.replace(/<think>[\s\S]*?<\/think>/g, "")).trim() : "";
         if (cleaned) {
@@ -723,6 +752,8 @@ export function createClawSamaPlugin() {
               currentDance: prefs.currentDance,
               customDancePreset: prefs.customDancePreset,
               language: prefs.language,
+              hideMood: prefs.hideMood,
+              moodIndex: currentMood,
             });
             return;
           }
@@ -741,6 +772,7 @@ export function createClawSamaPlugin() {
             if (body.currentDance !== undefined) patch.currentDance = body.currentDance;
             if (body.customDancePreset !== undefined) patch.customDancePreset = body.customDancePreset;
             if (body.language !== undefined) patch.language = body.language;
+            if (body.hideMood !== undefined) patch.hideMood = body.hideMood;
             setPrefs(updatePrefs(patch));
             jsonResponse(res, 200, { ok: true });
             return;
@@ -1213,17 +1245,59 @@ export function createClawSamaPlugin() {
           }
         });
 
-        // ── Chat history ──
+        // ── Session JSONL path resolution (shared by history & memo) ──
+        const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+        const stateDir = process.env.OPENCLAW_STATE_DIR?.trim() || path.join(homeDir, ".openclaw");
+        const sessionsDir = path.join(stateDir, "agents", "main", "sessions");
+        const sessionsStorePath = path.join(sessionsDir, "sessions.json");
+
+        function resolveSessionJsonlPath(): string {
+          try {
+            const store = JSON.parse(readFileSync(sessionsStorePath, "utf8"));
+            const entry = store[CLAW_SESSION_KEY] || store["agent:main:main"];
+            if (entry?.sessionId) {
+              const candidate = entry.sessionFile
+                ? path.resolve(sessionsDir, entry.sessionFile)
+                : path.join(sessionsDir, `${entry.sessionId}.jsonl`);
+              if (existsSync(candidate)) return candidate;
+            }
+          } catch { /* */ }
+          // Fallback: most recently modified .jsonl
+          if (existsSync(sessionsDir)) {
+            const files = readdirSync(sessionsDir)
+              .filter((f: string) => f.endsWith(".jsonl"))
+              .map((f: string) => ({ name: f, mtime: statSync(path.join(sessionsDir, f)).mtimeMs }))
+              .sort((a: any, b: any) => b.mtime - a.mtime);
+            if (files.length > 0) return path.join(sessionsDir, files[0].name);
+          }
+          return "";
+        }
+
+        // ── Chat history (read JSONL directly from disk) ──
+
         registerRoute("/plugins/claw-sama/history", async (req, res) => {
           if (handleCors(req, res, "GET, OPTIONS")) return;
           if (req.method !== "GET") { res.writeHead(405); res.end(); return; }
           try {
-            const rt = getClawSamaRuntime();
-            const session = await rt.subagent.getSessionMessages({
-              sessionKey: CLAW_SESSION_KEY,
-              limit: 100,
-            });
-            // Try to extract agent name from IDENTITY.md
+            // 1. Find the session JSONL file
+            const jsonlPath = resolveSessionJsonlPath();
+
+            if (!jsonlPath || !existsSync(jsonlPath)) {
+              jsonResponse(res, 200, { messages: [] });
+              return;
+            }
+
+            // 2. Parse JSONL
+            const lines = readFileSync(jsonlPath, "utf8").split("\n").filter((l: string) => l.trim());
+            const rawMessages: any[] = [];
+            for (const line of lines) {
+              try {
+                const obj = JSON.parse(line);
+                if (obj.message) rawMessages.push(obj.message);
+              } catch { /* skip malformed lines */ }
+            }
+
+            // 3. Extract agent name from IDENTITY.md
             let agentName = "";
             try {
               if (existsSync(identityPath)) {
@@ -1233,6 +1307,7 @@ export function createClawSamaPlugin() {
               }
             } catch { /* */ }
 
+            // 4. Clean and format messages
             const extractText = (content: unknown): string => {
               if (typeof content === "string") return content;
               if (Array.isArray(content)) {
@@ -1257,10 +1332,10 @@ export function createClawSamaPlugin() {
                 .trim();
             };
             const cleanAssistantContent = (raw: string): string => {
-              // Only strip <think>...</think> tags, keep everything else
               return raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
             };
-            const messages = (session.messages || []).map((msg: any) => {
+
+            const messages = rawMessages.map((msg: any) => {
               const role = msg.role === "model" ? "assistant" : msg.role;
               const rawContent = extractText(msg.content);
               const content = role === "user"
@@ -1270,7 +1345,10 @@ export function createClawSamaPlugin() {
                   : rawContent;
               return { role, content, timestamp: msg.timestamp };
             }).filter((m: any) => (m.role === "user" || m.role === "assistant") && m.content);
-            jsonResponse(res, 200, { messages, agentName: agentName || undefined });
+
+            // Return last 100 messages
+            const sliced = messages.length > 100 ? messages.slice(-100) : messages;
+            jsonResponse(res, 200, { messages: sliced, agentName: agentName || undefined });
           } catch (err) {
             jsonResponse(res, 500, { error: String(err) });
           }
@@ -1365,6 +1443,39 @@ export function createClawSamaPlugin() {
           }
         });
 
+        // ── Mood adjust ──
+        registerRoute("/plugins/claw-sama/mood/adjust", async (req, res) => {
+          if (handleCors(req, res, "POST, OPTIONS")) return;
+          if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
+          const body = await readJsonBody(req);
+          const delta = Math.round(Number(body.delta) || 0);
+          if (delta === 0) { jsonResponse(res, 200, { ok: true, moodIndex: currentMood }); return; }
+          const cap = body.max != null ? Math.round(Number(body.max)) : 100;
+          currentMood = Math.max(0, Math.min(cap, currentMood + delta));
+          lastMoodChangeTime = Date.now();
+          broadcastToVrm({ moodDelta: delta, moodIndex: currentMood });
+          jsonResponse(res, 200, { ok: true, moodIndex: currentMood });
+        });
+
+        // ── Session memo: append a user message without triggering LLM reply ──
+        registerRoute("/plugins/claw-sama/session/memo", async (req, res) => {
+          if (handleCors(req, res, "POST, OPTIONS")) return;
+          if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
+          const body = await readJsonBody(req);
+          const text = typeof body.text === "string" ? body.text.trim() : "";
+          if (!text) { jsonResponse(res, 400, { error: "text required" }); return; }
+          const jsonlPath = resolveSessionJsonlPath();
+          if (!jsonlPath) { jsonResponse(res, 200, { ok: true, written: false }); return; }
+          try {
+            const line = JSON.stringify({ message: { role: "user", content: text } });
+            appendFileSync(jsonlPath, line + "\n", "utf8");
+            jsonResponse(res, 200, { ok: true, written: true });
+          } catch (err) {
+            console.error("[claw-sama] memo write error:", err);
+            jsonResponse(res, 200, { ok: true, written: false });
+          }
+        });
+
         log?.info?.("Claw Sama channel route handlers populated");
 
         // Keep alive until abort signal fires
@@ -1379,14 +1490,17 @@ export function createClawSamaPlugin() {
       },
     },
 
-    // Agent tool: emotion control
+    // Agent tool: emotion control + mood adjustment
     agentTools: [
       {
         name: "claw_sama_emotion",
         label: "claw_sama_emotion",
         description:
-          "Set the avatar's facial expression. Call BEFORE your text reply. " +
-          "Available emotions: " + VALID_EMOTIONS.join(", ") + ".",
+          "Set the avatar's facial expression and adjust your own mood index. Call BEFORE your text reply. " +
+          "Available emotions: " + VALID_EMOTIONS.join(", ") + ". " +
+          "You must also set mood_delta (-3 to +3, min ±1) to reflect how the conversation makes YOU feel as a character. " +
+          "Positive delta when you feel happy/flattered/excited, negative when you feel sad/annoyed/bored. " +
+          "Always include mood_delta — it represents YOUR emotional reaction.",
         parameters: {
           type: "object" as const,
           properties: {
@@ -1398,16 +1512,39 @@ export function createClawSamaPlugin() {
               type: "number" as const,
               description: "Emotion intensity from 0 to 1. Default: 1",
             },
+            mood_delta: {
+              type: "integer" as const,
+              description: "Adjust YOUR OWN mood index as a character. Range: -3 to +3 (minimum absolute value 1). Positive = you feel happier, negative = you feel sadder.",
+            },
           },
           required: ["emotion"],
         },
         async execute(_toolCallId: string, params: any) {
           const emotion = params.emotion ?? "neutral";
           const intensity = params.intensity ?? 1;
-          pendingEmotion = { emotion, intensity };
+          let moodDelta: number | undefined;
+
+          if (params.mood_delta !== undefined) {
+            // Clamp to ±1..±5 range, ensure integer
+            let d = Math.round(params.mood_delta);
+            if (d > 0) d = Math.max(1, Math.min(3, d));
+            else if (d < 0) d = Math.min(-1, Math.max(-3, d));
+            else d = 1; // if 0 given, default to +1
+            moodDelta = d;
+
+            // Apply mood change
+            const oldMood = currentMood;
+            currentMood = Math.max(0, Math.min(100, oldMood + d));
+            lastMoodChangeTime = Date.now();
+
+            // Broadcast mood change to frontend
+            broadcastToVrm({ moodDelta: d, moodIndex: currentMood });
+          }
+
+          pendingEmotion = { emotion, intensity, moodDelta };
           return {
-            content: [{ type: "text" as const, text: `Avatar emotion set to ${emotion}.` }],
-            details: { emotion, intensity },
+            content: [{ type: "text" as const, text: `Avatar emotion set to ${emotion}.${moodDelta !== undefined ? ` Your mood ${moodDelta > 0 ? "+" : ""}${moodDelta} → ${currentMood}%` : ""}` }],
+            details: { emotion, intensity, moodDelta },
           };
         },
       } as AnyAgentTool,

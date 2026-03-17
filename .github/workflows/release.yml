@@ -74,13 +74,13 @@ jobs:
             app/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.zip
 
-      # Upload raw binary for npm packaging (avoids .app signing/permission issues)
-      - name: Upload raw binary for npm (macOS)
+      # Upload .app bundle for npm packaging (instead of raw binary)
+      - name: Upload .app bundle for npm (macOS)
         if: startsWith(matrix.platform, 'macos')
         uses: actions/upload-artifact@v4
         with:
-          name: claw-sama-bin-${{ matrix.target }}
-          path: app/src-tauri/target/${{ matrix.target }}/release/claw-sama
+          name: claw-sama-app-${{ matrix.target }}
+          path: app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Claw Sama.app
 
   release:
     needs: build
@@ -110,12 +110,15 @@ jobs:
           - artifact: claw-sama-windows
             npm_dir: npm/win32-x64
             binary_name: claw-sama.exe
-          - artifact: claw-sama-bin-aarch64-apple-darwin
+            is_app_bundle: false
+          - artifact: claw-sama-app-aarch64-apple-darwin
             npm_dir: npm/darwin-arm64
-            binary_name: claw-sama
-          - artifact: claw-sama-bin-x86_64-apple-darwin
+            binary_name: "Claw Sama.app"
+            is_app_bundle: true
+          - artifact: claw-sama-app-x86_64-apple-darwin
             npm_dir: npm/darwin-x64
-            binary_name: claw-sama
+            binary_name: "Claw Sama.app"
+            is_app_bundle: true
     steps:
       - uses: actions/checkout@v4
 
@@ -143,15 +146,25 @@ jobs:
           "
           echo "Set version to $VERSION"
 
-      - name: Place binary into sub-package
+      - name: Place binary/bundle into sub-package
         run: |
-          bin=$(find artifacts -name '${{ matrix.binary_name }}' -type f | head -1)
-          if [ -z "$bin" ]; then
-            echo "ERROR: ${{ matrix.binary_name }} not found in artifacts"
-            exit 1
+          if [ "${{ matrix.is_app_bundle }}" = "true" ]; then
+            # .app is a directory — use cp -R
+            app_dir=$(find artifacts -name '${{ matrix.binary_name }}' -type d | head -1)
+            if [ -z "$app_dir" ]; then
+              echo "ERROR: ${{ matrix.binary_name }} not found in artifacts"
+              exit 1
+            fi
+            cp -R "$app_dir" "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
+          else
+            bin=$(find artifacts -name '${{ matrix.binary_name }}' -type f | head -1)
+            if [ -z "$bin" ]; then
+              echo "ERROR: ${{ matrix.binary_name }} not found in artifacts"
+              exit 1
+            fi
+            cp "$bin" "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
+            chmod +x "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
           fi
-          cp "$bin" "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
-          chmod +x "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
           ls -la "${{ matrix.npm_dir }}/"
 
       - name: Publish platform package

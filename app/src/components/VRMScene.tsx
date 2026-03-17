@@ -33,6 +33,8 @@ export interface VRMSceneHandle {
   stopDance: () => void
   isDancing: () => boolean
   setBgmVolume: (v: number) => void
+  /** Unified reset: camera + resetToIdle + expressions to zero */
+  reset: () => void
 }
 
 // ── Blink state ───────────────────────────────────────────────────────────────
@@ -202,13 +204,18 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
       motionRef.current?.playDance(nameOrPreset)
     },
     stopDance() {
-      motionRef.current?.stopDance()
+      motionRef.current?.resetToIdle()
     },
     isDancing() {
       return motionRef.current?.isDancing ?? false
     },
     setBgmVolume(v: number) {
       motionRef.current?.setVolume(v)
+    },
+    reset() {
+      resetCameraRef.current?.()
+      motionRef.current?.resetToIdle()
+      emoteRef.current?.resetAll()
     },
   }))
 
@@ -368,8 +375,7 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
         emoteRef.current = emote
 
         // ── Initialize MotionController ──────────────────────────────────────
-        const mixer = new THREE.AnimationMixer(loadedVrm.scene)
-        motion = new MotionController(loadedVrm, mixer)
+        motion = new MotionController(loadedVrm)
         motionRef.current = motion
 
         // Dance camera: auto-fit from hips position, centered on upper body

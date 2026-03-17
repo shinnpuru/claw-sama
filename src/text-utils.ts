@@ -72,6 +72,22 @@ export function stripEmoji(text: string): string {
 }
 
 /**
+ * Strip text for TTS playback:
+ * - Remove parenthesized content: （...）and (...)
+ * - Remove markdown symbols (but keep text between *...*)
+ * - Remove emoji
+ */
+export function stripForTts(text: string): string {
+  return text
+    .replace(/（[^）]*）/g, "")     // Remove （...）
+    .replace(/\([^)]*\)/g, "")      // Remove (...)
+    .replace(/[_~`#>]/g, "")        // Remove markdown symbols except *
+    .replace(/\*([^*]*)\*/g, "$1")  // Remove * but keep content between them
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "")
+    .trim();
+}
+
+/**
  * Split text into sentences for incremental TTS.
  * Splits on Chinese/Japanese sentence-ending punctuation and common English punctuation.
  */

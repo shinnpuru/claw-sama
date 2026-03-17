@@ -27,6 +27,8 @@ export type VrmBroadcastPayload = {
   streaming?: boolean;
   clearText?: boolean;
   imageUrl?: string;
+  moodDelta?: number;   // mood change amount (±1 to ±3)
+  moodIndex?: number;   // new mood value (0–100) after change
 };
 
 export function broadcastToVrm(payload: VrmBroadcastPayload) {

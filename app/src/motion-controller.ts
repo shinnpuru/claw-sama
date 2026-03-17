@@ -1,8 +1,8 @@
 /**
  * MotionController — unified animation system supporting VRMA, VMD, and FBX.
  *
- * Manages loading, caching, crossfading, and playback of body animations
- * on a VRM model via Three.js AnimationMixer.
+ * Following lobe-vidol pattern: create a NEW AnimationMixer for each animation
+ * playback and properly clean up (uncacheRoot) when stopping.
  */
 
 import * as THREE from 'three'
@@ -98,7 +98,8 @@ function reAnchorRootPositionTrack(clip: THREE.AnimationClip, vrm: VRM) {
 
 export class MotionController {
   private vrm: VRM
-  private mixer: THREE.AnimationMixer
+  private mixer: THREE.AnimationMixer | null = null
+  private idleClip: THREE.AnimationClip | null = null
   private idleAction: THREE.AnimationAction | null = null
   private currentAction: THREE.AnimationAction | null = null
   private clipCache = new Map<string, THREE.AnimationClip>()
@@ -116,15 +117,14 @@ export class MotionController {
   onDanceStart?: () => void
   onDanceStop?: () => void
 
-  constructor(vrm: VRM, mixer: THREE.AnimationMixer) {
+  constructor(vrm: VRM) {
     this.vrm = vrm
-    this.mixer = mixer
     this.gltfLoader = new GLTFLoader()
     this.gltfLoader.register((parser) => new VRMAnimationLoaderPlugin(parser))
     this.ikHandler = VRMIKHandler.get(vrm)
   }
 
-  private _volume = 1
+  private _volume = 0.5
 
   get isDancing() { return this._isDancing }
   get actionPlaying() { return this._actionPlaying }
@@ -136,25 +136,79 @@ export class MotionController {
   }
 
   update(delta: number) {
-    this.mixer.update(delta)
+    if (this.mixer) this.mixer.update(delta)
     if (this._ikActive) this.ikHandler.update()
   }
 
-  // ── Load idle animation ─────────────────────────────────────────────────
+  // ── Mixer lifecycle (lobe-vidol pattern) ─────────────────────────────────
+
+  /** Create a fresh mixer, destroying any existing one first. */
+  private createMixer(): THREE.AnimationMixer {
+    this.destroyMixer()
+    this.mixer = new THREE.AnimationMixer(this.vrm.scene)
+    return this.mixer
+  }
+
+  /** Clean up current mixer: stop all actions, uncache, nullify. */
+  private destroyMixer() {
+    if (this.mixer) {
+      this.mixer.stopAllAction()
+      this.mixer.uncacheRoot(this.vrm.scene)
+      this.mixer = null
+    }
+    this.idleAction = null
+    this.currentAction = null
+  }
+
+  // ── Load & play idle animation ───────────────────────────────────────────
 
   async loadIdle(path: string) {
     const clip = await this.loadVRMA(path)
     if (!clip) return
     reAnchorRootPositionTrack(clip, this.vrm)
-    this.idleAction = this.mixer.clipAction(clip)
+    this.idleClip = clip
+    this.startIdle()
+  }
+
+  /** (Re)start idle on a fresh mixer. */
+  private startIdle() {
+    if (!this.idleClip) return
+    const mixer = this.createMixer()
+    this.idleAction = mixer.clipAction(this.idleClip)
     this.idleAction.play()
+  }
+
+  // ── Clear current action (private) ──────────────────────────────────────
+
+  private clearTimers() {
+    if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null }
+    if (this._actionSafetyTimer) { clearTimeout(this._actionSafetyTimer); this._actionSafetyTimer = null }
+  }
+
+  // ── Reset to idle (public) ──────────────────────────────────────────────
+  // Full reset: stop BGM + stop dance + restart idle on a fresh mixer.
+
+  resetToIdle() {
+    this.stopBgm()
+    this.clearTimers()
+    this.disableIK()
+
+    const wasDancing = this._isDancing
+    this._isDancing = false
+    this._actionPlaying = false
+
+    // Fresh mixer + idle
+    this.startIdle()
+
+    if (wasDancing) this.onDanceStop?.()
   }
 
   // ── Play a one-shot action ──────────────────────────────────────────────
 
   async playAction(name: string, hold = false) {
     console.log('[Motion] playAction:', name, { isDancing: this._isDancing, actionPlaying: this._actionPlaying })
-    if (this._isDancing || this._actionPlaying) return
+    if (this._actionPlaying) return
+    if (this._isDancing) return
 
     const preset = actionPresets[name]
     if (!preset) { console.warn('[Motion] unknown action:', name); return }
@@ -164,40 +218,40 @@ export class MotionController {
     if (!clip) { console.warn('[Motion] clip load failed for:', name); return }
     console.log('[Motion] playing:', name)
 
-    this.releaseHeld()
+    this.clearTimers()
     this._actionPlaying = true
 
-    const action = this.mixer.clipAction(clip)
+    // Create fresh mixer for this action
+    const mixer = this.createMixer()
+
+    const action = mixer.clipAction(clip)
     action.reset()
     action.setLoop(THREE.LoopOnce, 1)
     action.clampWhenFinished = hold
+    action.play()
 
-    if (hold) {
-      this.idleAction?.stop()
-      action.play()
-    } else {
-      if (this.idleAction) action.crossFadeFrom(this.idleAction, 0.3, true)
-      action.play()
-    }
+    this.currentAction = action
 
     let settled = false
     const settle = () => {
       if (settled) return
       settled = true
-      this.mixer.removeEventListener('finished', onFinished)
-      if (this._actionSafetyTimer) { clearTimeout(this._actionSafetyTimer); this._actionSafetyTimer = null }
+      mixer.removeEventListener('finished', onFinished)
+      this.clearTimers()
       if (hold) {
-        this.currentAction = action
-        this.holdTimer = setTimeout(() => this.releaseHeld(), 10000)
+        this.holdTimer = setTimeout(() => {
+          this._actionPlaying = false
+          this.disableIK()
+          this.startIdle()
+        }, 10000)
       } else {
-        action.stop()
-        this.idleAction?.reset().play()
         this._actionPlaying = false
         this.disableIK()
+        this.startIdle()
       }
     }
     const onFinished = () => settle()
-    this.mixer.addEventListener('finished', onFinished)
+    mixer.addEventListener('finished', onFinished)
 
     // Safety timeout: guarantee _actionPlaying resets even if 'finished' never fires
     const duration = clip.duration > 0 ? clip.duration : 3
@@ -223,12 +277,15 @@ export class MotionController {
         return
       }
 
-      this.releaseHeld()
-      this.idleAction?.stop()
+      this.clearTimers()
+      this._actionPlaying = false
+
+      // Fresh mixer for dance
+      const mixer = this.createMixer()
 
       this.onDanceStart?.()
 
-      // Play BGM if preset has one (stop any lingering audio first)
+      // Play BGM if preset has one
       this.stopBgmImmediate()
       if (preset?.bgm) {
         this.bgmAudio = new Audio(preset.bgm)
@@ -237,7 +294,7 @@ export class MotionController {
         this.bgmAudio.play().catch(() => {})
       }
 
-      this.currentAction = this.mixer.clipAction(clip)
+      this.currentAction = mixer.clipAction(clip)
       this.currentAction.reset()
       this.currentAction.setLoop(THREE.LoopRepeat, Infinity)
       this.currentAction.play()
@@ -245,29 +302,6 @@ export class MotionController {
       console.error('Failed to start dance:', err)
       this._isDancing = false
     }
-  }
-
-  stopDance() {
-    // Always stop BGM regardless of dance state
-    this.stopBgm()
-
-    if (!this._isDancing) return
-    this._isDancing = false
-
-    if (this.currentAction) {
-      this.currentAction.fadeOut(0.5)
-      const action = this.currentAction
-      this.currentAction = null
-      setTimeout(() => {
-        action.stop()
-        this.idleAction?.reset().play()
-        this.disableIK()
-      }, 500)
-    } else {
-      this.disableIK()
-    }
-
-    this.onDanceStop?.()
   }
 
   /** Stop BGM with fade-out. Safe to call anytime. */
@@ -294,29 +328,14 @@ export class MotionController {
   /** Cleanup when controller is being destroyed (model reload etc.) */
   dispose() {
     this.stopBgm()
+    this.clearTimers()
     this.disableIK()
     this._isDancing = false
     this._actionPlaying = false
-    if (this.currentAction) {
-      this.currentAction.stop()
-      this.currentAction = null
-    }
-    if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null }
-    if (this._actionSafetyTimer) { clearTimeout(this._actionSafetyTimer); this._actionSafetyTimer = null }
+    this.destroyMixer()
   }
 
   // ── Internal ────────────────────────────────────────────────────────────
-
-  private releaseHeld() {
-    if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null }
-    if (this.currentAction) {
-      this.currentAction.stop()
-      this.currentAction = null
-      this.idleAction?.reset().play()
-      this._actionPlaying = false
-      this.disableIK()
-    }
-  }
 
   private disableIK() {
     if (this._ikActive) {

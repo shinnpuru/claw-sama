@@ -80,9 +80,9 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         let buf_size: u32 = 1024;
         let _: () = msg_send![
             input_node,
-            installTapOnBus: bus
-            bufferSize: buf_size
-            format: &*format
+            installTapOnBus: bus,
+            bufferSize: buf_size,
+            format: &*format,
             block: &*tap_block
         ];
 
@@ -113,7 +113,7 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         // --- Start recognition task ---
         let ptr: *mut AnyObject = msg_send![
             &*recognizer,
-            recognitionTaskWithRequest: &*request
+            recognitionTaskWithRequest: &*request,
             resultHandler: &*handler
         ];
         let task = retained(ptr)?;

@@ -18,7 +18,8 @@ export async function edgeTts(opts: { text: string; voice?: string }): Promise<{
   }
 }
 
-const QWEN_TTS_URL = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
+const QWEN_TTS_URL_CN = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
+const QWEN_TTS_URL_INTL = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
 
 export async function qwenTts(params: {
   text: string;
@@ -26,15 +27,21 @@ export async function qwenTts(params: {
   voice?: string;
   model?: string;
   extDir: string;
+  language?: "zh" | "en";
 }): Promise<{ success: boolean; audioPath?: string; error?: string }> {
   const voice = params.voice || "Cherry";
   const model = params.model || "qwen3-tts-flash";
+  const lang = params.language || "zh";
+
+  // Choose endpoint and language_type based on language setting
+  const endpoint = lang === "zh" ? QWEN_TTS_URL_CN : QWEN_TTS_URL_INTL;
+  const languageType = lang === "zh" ? "Chinese" : "English";
 
   try {
     const abortCtrl = new AbortController();
     const timeout = setTimeout(() => abortCtrl.abort(), 30_000);
 
-    const resp = await fetch(QWEN_TTS_URL, {
+    const resp = await fetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${params.apiKey}`,
@@ -45,7 +52,7 @@ export async function qwenTts(params: {
         input: {
           text: params.text,
           voice,
-          language_type: "Chinese",
+          language_type: languageType,
         },
       }),
       signal: abortCtrl.signal,

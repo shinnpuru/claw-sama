@@ -30,6 +30,33 @@
         transform: rotate(360deg);
       }
     }
+
+    @keyframes claw-input-slide-up {
+      0% { opacity: 0; transform: translateY(20px) scale(0.95); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes claw-input-slide-down {
+      0% { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(20px) scale(0.95); }
+    }
+
+    @keyframes claw-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    @keyframes claw-pop-in {
+      0% { opacity: 0; transform: scale(0) translateY(0.5em); }
+      60% { opacity: 1; transform: scale(1.15) translateY(-0.05em); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    @keyframes mood-bubble-float {
+      0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      70% { opacity: 1; }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-36px); }
+    }
   </style>
 </head>
 
