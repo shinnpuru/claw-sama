@@ -148,7 +148,7 @@ jobs:
           echo "=== artifacts contents ==="
           find artifacts -type f
           if [ "${{ matrix.is_app_bundle }}" = "true" ]; then
-            mv artifacts/"${{ matrix.binary_name }}" "${{ matrix.npm_dir }}/"
+            mv artifacts "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
             ls -la "${{ matrix.npm_dir }}/"
           else
             bin=$(find artifacts -name '${{ matrix.binary_name }}' -type f | head -1)
