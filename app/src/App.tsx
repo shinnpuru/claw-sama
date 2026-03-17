@@ -73,7 +73,7 @@ export default function App() {
   const [customDancePreset, setCustomDancePreset] = useState<import('./motion-controller').DancePreset | undefined>(undefined)
   const [screenObserve, setScreenObserve] = useState(false)
   const [screenObserveInterval, setScreenObserveInterval] = useState(60)
-  const [language, setLanguage] = useState<'zh' | 'en'>('zh')
+  const [language, setLanguage] = useState<'zh' | 'en'>(() => navigator.language.startsWith('zh') ? 'zh' : 'en')
   usePassThrough(!settingsOpen && !historyOpen)
 
   // Load persisted settings on mount
@@ -92,7 +92,17 @@ export default function App() {
         if (s.screenObserveInterval !== undefined) setScreenObserveInterval(s.screenObserveInterval)
         if (s.currentDance) setCurrentDance(s.currentDance)
         if (s.customDancePreset) setCustomDancePreset(s.customDancePreset)
-        if (s.language) setLanguage(s.language)
+        if (s.language) {
+          setLanguage(s.language)
+        } else {
+          // No saved language — persist the detected system language to backend
+          const detected = navigator.language.startsWith('zh') ? 'zh' : 'en'
+          fetch(`${OPENCLAW_URL}/plugins/claw-sama/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ language: detected }),
+          }).catch(() => {})
+        }
       })
       .catch(() => {})
   }, [])
