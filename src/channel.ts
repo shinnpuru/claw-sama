@@ -5,7 +5,7 @@
  * dispatchReply/deliver pattern as DingTalk, Synology Chat, etc.
  */
 
-import { DEFAULT_ACCOUNT_ID, registerPluginHttpRoute } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import type { AnyAgentTool } from "openclaw/plugin-sdk";
 import { getClawSamaRuntime } from "./runtime.js";
 import { broadcastToVrm, addSseClient, removeSseClient, type VrmBroadcastPayload } from "./sse.js";
@@ -31,6 +31,39 @@ const MIME_TYPES: Record<string, string> = {
   ".wav": "audio/wav",
   ".webm": "audio/webm",
 };
+
+// Route handler map: startAccount populates, index.ts proxy reads
+type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
+export const routeHandlers = new Map<string, RouteHandler>();
+
+export interface ClawSamaRouteSpec {
+  path: string;
+  match?: "exact" | "prefix";
+}
+
+export const CLAW_SAMA_ROUTES: ClawSamaRouteSpec[] = [
+  { path: "/plugins/claw-sama/events" },
+  { path: "/plugins/claw-sama/audio", match: "prefix" },
+  { path: "/plugins/claw-sama/media", match: "prefix" },
+  { path: "/plugins/claw-sama/chat" },
+  { path: "/plugins/claw-sama/touch" },
+  { path: "/plugins/claw-sama/voice" },
+  { path: "/plugins/claw-sama/preview" },
+  { path: "/plugins/claw-sama/settings" },
+  { path: "/plugins/claw-sama/persona" },
+  { path: "/plugins/claw-sama/persona/screenshot" },
+  { path: "/plugins/claw-sama/persona/generate" },
+  { path: "/plugins/claw-sama/screen/observe" },
+  { path: "/plugins/claw-sama/model/list" },
+  { path: "/plugins/claw-sama/model/serve", match: "prefix" },
+  { path: "/plugins/claw-sama/model/import" },
+  { path: "/plugins/claw-sama/dance/list" },
+  { path: "/plugins/claw-sama/dance/serve", match: "prefix" },
+  { path: "/plugins/claw-sama/dance/import" },
+  { path: "/plugins/claw-sama/dance/delete" },
+  { path: "/plugins/claw-sama/history" },
+  { path: "/plugins/claw-sama/context/clear" },
+];
 
 export function buildClawSamaSystemPrompt(): string {
   const lines = [
@@ -238,7 +271,6 @@ function jsonResponse(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-const activeRouteUnregisters = new Map<string, () => void>();
 
 export function createClawSamaPlugin() {
   return {
@@ -346,31 +378,14 @@ export function createClawSamaPlugin() {
 
         log?.info?.("Starting Claw Sama channel");
 
-        // ── Register HTTP routes via the plugin route system ──
-
-        const routes: Array<{ path: string; key: string; unregister?: () => void }> = [];
+        // ── Populate route handlers (actual routes are registered via api.registerHttpRoute in index.ts) ──
 
         function registerRoute(
           routePath: string,
           handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>,
-          opts?: { match?: "exact" | "prefix" },
+          _opts?: { match?: "exact" | "prefix" },
         ) {
-          const key = `${ctx.accountId}:${routePath}`;
-          const prev = activeRouteUnregisters.get(key);
-          if (prev) { prev(); activeRouteUnregisters.delete(key); }
-
-          const unregister = registerPluginHttpRoute({
-            path: routePath,
-            auth: "plugin",
-            replaceExisting: true,
-            pluginId: CHANNEL_ID,
-            accountId: ctx.accountId,
-            match: opts?.match,
-            log: (msg: string) => log?.info?.(msg),
-            handler,
-          });
-          activeRouteUnregisters.set(key, unregister);
-          routes.push({ path: routePath, key, unregister });
+          routeHandlers.set(routePath, handler);
         }
 
         // ── SSE endpoint ──
@@ -1288,15 +1303,12 @@ export function createClawSamaPlugin() {
           }
         });
 
-        log?.info?.("Claw Sama channel routes registered");
+        log?.info?.("Claw Sama channel route handlers populated");
 
         // Keep alive until abort signal fires
         return waitUntilAbort(ctx.abortSignal, () => {
           log?.info?.("Stopping Claw Sama channel");
-          for (const { key } of routes) {
-            const unreg = activeRouteUnregisters.get(key);
-            if (unreg) { unreg(); activeRouteUnregisters.delete(key); }
-          }
+          routeHandlers.clear();
         });
       },
 

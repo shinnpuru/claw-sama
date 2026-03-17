@@ -1,6 +1,6 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { createClawSamaPlugin, buildClawSamaSystemPrompt } from "./src/channel.js";
+import { createClawSamaPlugin, buildClawSamaSystemPrompt, routeHandlers, CLAW_SAMA_ROUTES } from "./src/channel.js";
 import { setClawSamaRuntime } from "./src/runtime.js";
 import { launchTauri, stopTauri } from "./src/tauri-launcher.js";
 import path from "node:path";
@@ -18,6 +18,29 @@ const plugin = {
   register(api: OpenClawPluginApi) {
     setClawSamaRuntime(api.runtime);
     api.registerChannel({ plugin: createClawSamaPlugin() });
+
+    // Register all HTTP routes via api.registerHttpRoute (writes to gateway-visible registry).
+    // Each route proxies to the handler populated by startAccount in channel.ts.
+    for (const spec of CLAW_SAMA_ROUTES) {
+      api.registerHttpRoute({
+        path: spec.path,
+        auth: "plugin",
+        match: spec.match,
+        handler: (req, res) => {
+          // Find the matching handler from routeHandlers map
+          let handler = routeHandlers.get(spec.path);
+          if (!handler && spec.match === "prefix") {
+            // For prefix routes, the key is the base path
+            handler = routeHandlers.get(spec.path);
+          }
+          if (handler) {
+            return handler(req, res);
+          }
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "channel not started" }));
+        },
+      });
+    }
 
     // Inject system prompt for VRM avatar awareness
     api.on("before_prompt_build", () => {

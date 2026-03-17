@@ -244,9 +244,11 @@ pub fn run() {
             {
                 use objc2_app_kit::NSApplication;
                 use objc2_app_kit::NSApplicationActivationPolicy;
-                let ns_app = NSApplication::sharedApplication();
+                use objc2::MainThreadMarker;
+                let mtm = MainThreadMarker::new().expect("must be on main thread");
+                let ns_app = NSApplication::sharedApplication(mtm);
                 ns_app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
-                unsafe { ns_app.activate() };
+                ns_app.activate();
             }
 
             let window = app.get_webview_window("main").unwrap();

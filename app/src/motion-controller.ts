@@ -35,17 +35,16 @@ export const actionPresets: Record<string, MotionPreset> = {
   scratchHead:  { label: '挠头',   type: 'vrma', url: '/scratchHead.vrma' },
   stretch:      { label: '伸展',   type: 'vrma', url: '/stretch.vrma' },
 
-  // Remote FBX actions (Mixamo via CDN)
-  happy:        { label: '开心',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c98a38-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  angry:        { label: '生气',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c98b02-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  greeting:     { label: '招呼',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c7996a-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  excited:      { label: '兴奋',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c9941c-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  shy:          { label: '害羞',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9ccf37e-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  point:        { label: '指点',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c916ce-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  lookAway:     { label: '叹气',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c91624-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  salute:       { label: '敬礼',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c91ba2-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  handGesture:  { label: '手势',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c91ba2-b96c-11e4-a802-0aaa78deedf9.fbx' },
-  angryPump:    { label: '暴怒',     type: 'fbx', url: 'https://r2.vidol.chat/animations/c9c915fd-b96c-11e4-a802-0aaa78deedf9.fbx' },
+  // Local FBX actions (bundled)
+  happy:        { label: '开心',     type: 'fbx', url: '/happy.fbx' },
+  angry:        { label: '生气',     type: 'fbx', url: '/angry.fbx' },
+  greeting:     { label: '招呼',     type: 'fbx', url: '/greeting.fbx' },
+  excited:      { label: '兴奋',     type: 'fbx', url: '/excited.fbx' },
+  shy:          { label: '害羞',     type: 'fbx', url: '/shy.fbx' },
+  point:        { label: '指点',     type: 'fbx', url: '/point.fbx' },
+  lookAway:     { label: '叹气',     type: 'fbx', url: '/lookAway.fbx' },
+  salute:       { label: '敬礼',     type: 'fbx', url: '/salute.fbx' },
+  angryPump:    { label: '暴怒',     type: 'fbx', url: '/angryPump.fbx' },
 }
 
 // Dances: looping full-body animations with optional BGM
@@ -111,6 +110,7 @@ export class MotionController {
   private _actionPlaying = false
   private _ikActive = false
   private holdTimer: ReturnType<typeof setTimeout> | null = null
+  private _actionSafetyTimer: ReturnType<typeof setTimeout> | null = null
   private bgmAudio: HTMLAudioElement | null = null
 
   // Callbacks for external coordination (camera switching etc.)
@@ -181,8 +181,12 @@ export class MotionController {
       action.play()
     }
 
-    const onFinished = () => {
+    let settled = false
+    const settle = () => {
+      if (settled) return
+      settled = true
       this.mixer.removeEventListener('finished', onFinished)
+      if (this._actionSafetyTimer) { clearTimeout(this._actionSafetyTimer); this._actionSafetyTimer = null }
       if (hold) {
         this.currentAction = action
         this.holdTimer = setTimeout(() => this.releaseHeld(), 10000)
@@ -193,7 +197,12 @@ export class MotionController {
         this.disableIK()
       }
     }
+    const onFinished = () => settle()
     this.mixer.addEventListener('finished', onFinished)
+
+    // Safety timeout: guarantee _actionPlaying resets even if 'finished' never fires
+    const duration = clip.duration > 0 ? clip.duration : 3
+    this._actionSafetyTimer = setTimeout(() => settle(), (duration + 1) * 1000)
   }
 
   // ── Dance (looping VMD/FBX/VRMA) ───────────────────────────────────────
@@ -294,6 +303,7 @@ export class MotionController {
       this.currentAction = null
     }
     if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null }
+    if (this._actionSafetyTimer) { clearTimeout(this._actionSafetyTimer); this._actionSafetyTimer = null }
   }
 
   // ── Internal ────────────────────────────────────────────────────────────
