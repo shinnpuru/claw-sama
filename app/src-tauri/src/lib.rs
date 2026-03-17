@@ -239,6 +239,16 @@ pub fn run() {
             stop_speech_recognition,
         ])
         .setup(|app| {
+            // macOS: activate as foreground app (needed when running as raw binary outside .app bundle)
+            #[cfg(target_os = "macos")]
+            {
+                use objc2_app_kit::NSApplication;
+                use objc2_app_kit::NSApplicationActivationPolicy;
+                let ns_app = NSApplication::sharedApplication();
+                ns_app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+                unsafe { ns_app.activate() };
+            }
+
             let window = app.get_webview_window("main").unwrap();
 
             // Position window at bottom-right of screen
