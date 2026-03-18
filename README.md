@@ -22,19 +22,16 @@
 ---
 
 <p align="center">
-  <img src="img/display1.gif" width="80%" /><br/>
-  <img src="img/display2.png" width="80%" /><br/>
-  <img src="img/display3.png" width="80%" /><br/>
-  <img src="img/display4.png" width="80%" />
+  <img src="img/display1.gif" width="80%" />
 </p>
 
 ---
 
 ## What is Claw Sama? / 这是什么？
 
-Claw Sama is an AI desktop pet built as an [OpenClaw](https://github.com/anthropics/openclaw) plugin. She lives on your desktop as a 3D VRM avatar, talks to you with voice, reacts with emotions, and even watches your screen to keep you company.
+Claw Sama is an AI companion who lives on your desktop as a 3D VRM avatar — built as an [OpenClaw](https://github.com/anthropics/openclaw) plugin. She speaks with voice, shows emotions in real time, watches your screen to understand what you're up to, and responds when you touch her. She isn't something you open when you need help. She's just there — present, alive, and keeping you company.
 
-Claw Sama 是一个基于 [OpenClaw](https://github.com/anthropics/openclaw) 插件实现的 AI 桌面宠物。她以 3D VRM 虚拟形象常驻在你的桌面上，能用语音跟你聊天、实时表达情绪，甚至能观察你的屏幕来主动陪伴你。
+Claw Sama 是一个以 3D VRM 形象常驻桌面的 AI 伙伴，基于 [OpenClaw](https://github.com/anthropics/openclaw) 插件运行。她用语音说话，实时流露情绪，观察你的屏幕感知你在做什么，你触摸她时也会有反应。她不是你需要帮助时才打开的工具，而是就在那里——陪着你。
 
 ## Features / 特性
 
@@ -56,27 +53,27 @@ Claw Sama 是一个基于 [OpenClaw](https://github.com/anthropics/openclaw) 插
 - LLM-powered personality — she has her own character, not just a chatbot
 - Configurable persona via SOUL.md & IDENTITY.md — define her personality, speech style, backstory
 - One-click persona generation — take a screenshot of the VRM model, AI creates a matching bilingual character profile
-- Session memo — key events (touch, dance, conversations) are silently logged to the OpenClaw session JSONL for context
+- Session memo — key events like touch and dance are quietly noted, so she remembers the context of your time together
 - Edge TTS (free, Chinese/English/Japanese) or Qwen TTS (20+ expressive voices)
-- Full UI i18n — switch between Chinese and English in settings; persona generation prompt adapts to the selected language
+- Full UI i18n — switch between Chinese and English in settings
 - 文字或语音聊天（按住 F10 说话），她会用语音回复——不只是文字
 - 语音通话模式，全新 UI 设计——流畅沉浸的语音对话体验
 - LLM 驱动的独立人格——不只是聊天机器人，她有自己的性格
 - 通过 SOUL.md 和 IDENTITY.md 自定义人设——定义性格、说话风格、背景故事
 - 一键生成人设——截取模型截图，AI 自动生成双语匹配角色设定
-- 会话备忘录——触摸、舞蹈等关键事件静默写入 OpenClaw 会话 JSONL，保持上下文连贯
+- 会话备忘录——触摸、舞蹈等关键时刻会被悄悄记下，让她始终记得你们相处的点滴
 - Edge TTS（免费，中/英/日语音）或通义千问 TTS（20+ 种表现力丰富的语音）
-- 全 UI 国际化——在设置中切换中文/英文，人设生成提示词自动适配语言
+- 全 UI 国际化——在设置中切换中文 / 英文
 
 ### 💗 Mood System / 情绪系统
 - Live mood indicator — a canvas-based liquid heart + bar shows her current emotional state in real time
 - 5-tier color system: pink (euphoric) → orange (happy) → green (calm) → blue (neutral) → grey (low)
 - Mood shifts from conversation, touch reactions, and dancing — floats up/down with ❤️ delta bubbles
-- Mood influences her personality and system prompt dynamically
+- Mood influences how she talks and behaves
 - 实时情绪指示器——液态心形 + 液柱以动画方式呈现当前情绪状态
 - 五级色彩系统：粉红（开心）→ 橙（愉快）→ 绿（平静）→ 蓝（正常）→ 灰（低落）
 - 情绪受对话、触摸和舞蹈影响动态变化，并以 ❤️ 气泡飘动显示增减值
-- 情绪实时影响她的人设和系统提示词
+- 情绪实时影响她的说话方式和行为
 
 ### 👀 Companion Interaction / 陪伴式交互
 - She watches your screen and understands what you're doing — then talks to you about it
@@ -84,15 +81,13 @@ Claw Sama 是一个基于 [OpenClaw](https://github.com/anthropics/openclaw) 插
 - **Debugging a React component?** She notices you've been stuck for a while and suggests taking a break
 - **Watching a movie on Bilibili?** She comments on the plot twist she just saw
 - **Reading documentation?** She quietly cheers you on: "You got this!"
-- Touch her to interact — she reacts with animations and may reply; cooldown system prevents spam
-- Dance invitations are logged to the session memo automatically
+- Click to touch her — reactions vary by body part: pat her head and she's happy or shy; touch her chest, belly, or bottom and she gets angry; poke her arm and she's surprised or playful; tap her leg and she's a little awkward — each touch plays a matching animation and she may speak
 - 通过屏幕观察感知你正在做的事，像真正的伙伴一样自然地融入你的日常
 - **在打杀戮尖塔？** 她会帮你分析卡组搭配，提醒你小心精英怪
 - **调试 React 组件？** 她发现你卡了好一会儿，建议你起来活动活动
 - **在 B 站看电影？** 她会吐槽刚才的剧情反转
 - **在看技术文档？** 她默默给你打气："加油，你可以的！"
-- 触摸她可以触发反应——她会播放动画并可能回应；内置冷却防止刷屏
-- 邀请跳舞会自动记录到会话备忘录
+- 点击触摸她——不同部位有不同反应：摸头会开心或害羞，摸胸/肚子/臀部会生气，戳手臂会惊喜或调皮，碰腿会有点尴尬——每次触摸都有匹配的动画，她可能还会开口说话
 
 ### 💃 Dance System / 舞蹈系统
 - VMD dance playback with BGM — pick a preset and watch her dance
@@ -125,6 +120,13 @@ openclaw plugins install @luckybugqqq/claw-sama
 The npm package includes pre-built binaries for Windows (.exe) and macOS (.app). OpenClaw loads the plugin and launches the desktop pet automatically.
 
 npm 包内含 Windows (.exe) 和 macOS (.app) 预编译文件。OpenClaw 加载插件后自动启动桌面宠物。
+
+### Update / 更新插件
+
+```bash
+npm cache clean --force
+openclaw plugins update @luckybugqqq/claw-sama
+```
 
 ### Build from Source / 从源码构建
 
