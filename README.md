@@ -48,7 +48,7 @@ Claw Sama 是一个以 3D VRM 形象常驻桌面的 AI 伙伴，基于 [OpenClaw
 - 5 款内置 VRM 模型 + 支持导入自定义模型
 
 ### 🧠 AI Conversation & Voice / AI 对话与语音
-- Chat via text or voice (hold F10 to speak), she replies with voice — not just text
+- Chat via text or voice, she replies with voice — not just text
 - Voice call mode with redesigned UI — smooth, immersive voice conversations
 - LLM-powered personality — she has her own character, not just a chatbot
 - Configurable persona via SOUL.md & IDENTITY.md — define her personality, speech style, backstory
@@ -56,7 +56,7 @@ Claw Sama 是一个以 3D VRM 形象常驻桌面的 AI 伙伴，基于 [OpenClaw
 - Session memo — key events like touch and dance are quietly noted, so she remembers the context of your time together
 - Edge TTS (free, Chinese/English/Japanese) or Qwen TTS (20+ expressive voices)
 - Full UI i18n — switch between Chinese and English in settings
-- 文字或语音聊天（按住 F10 说话），她会用语音回复——不只是文字
+- 文字或语音聊天，她会用语音回复——不只是文字
 - 语音通话模式，全新 UI 设计——流畅沉浸的语音对话体验
 - LLM 驱动的独立人格——不只是聊天机器人，她有自己的性格
 - 通过 SOUL.md 和 IDENTITY.md 自定义人设——定义性格、说话风格、背景故事
