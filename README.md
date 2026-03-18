@@ -22,7 +22,13 @@
 ---
 
 <p align="center">
-  <img src="img/display1.gif" width="80%" />
+  <a href="https://www.bilibili.com/video/BV1bEw6zJEuU">
+    <img src="img/banner.png" alt="Watch on Bilibili" width="80%" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.bilibili.com/video/BV1bEw6zJEuU">▶ 在 B 站观看演示视频</a>
 </p>
 
 ---
