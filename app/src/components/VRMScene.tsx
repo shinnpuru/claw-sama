@@ -16,6 +16,8 @@ interface VRMSceneProps {
   idleAnimationPath?: string
   onTouch?: (region: TouchRegion) => void
   onModelLoaded?: () => void
+  ambientLightIntensity?: number
+  frontLightIntensity?: number
 }
 
 export type TrackingMode = 'mouse' | 'camera'
@@ -161,6 +163,8 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   idleAnimationPath = '/idle_loop.vrma',
   onTouch,
   onModelLoaded,
+  ambientLightIntensity = 0.6,
+  frontLightIntensity = 1.2,
 }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number; confirmed: boolean }[]>([])
@@ -183,6 +187,8 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   onTouchRef.current = onTouch
   const onModelLoadedRef = useRef(onModelLoaded)
   onModelLoadedRef.current = onModelLoaded
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null)
+  const frontLightRef = useRef<THREE.DirectionalLight | null>(null)
 
   useImperativeHandle(ref, () => ({
     setEmotion(emotion: string, intensity?: number) {
@@ -272,10 +278,13 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
     updateCameraOrbit()
 
     // ── Lights ────────────────────────────────────────────────────────────────
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6))
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2)
-    dirLight.position.set(1, 2, 3)
-    scene.add(dirLight)
+    const ambientLight = new THREE.AmbientLight(0xffffff, ambientLightIntensity)
+    scene.add(ambientLight)
+    ambientLightRef.current = ambientLight
+    const frontLight = new THREE.DirectionalLight(0xffffff, frontLightIntensity)
+    frontLight.position.set(1, 2, 3)
+    scene.add(frontLight)
+    frontLightRef.current = frontLight
     const fillLight = new THREE.DirectionalLight(0xffffff, 0.4)
     fillLight.position.set(-2, 1, -1)
     scene.add(fillLight)
@@ -780,11 +789,25 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
       emoteRef.current = null
       motion?.dispose()
       motionRef.current = null
+      ambientLightRef.current = null
+      frontLightRef.current = null
       hitTarget.dispose()
       delete (window as any).__clawHitTest
       renderer.dispose()
     }
   }, [modelPath, idleAnimationPath])
+
+  useEffect(() => {
+    if (ambientLightRef.current) {
+      ambientLightRef.current.intensity = ambientLightIntensity
+    }
+  }, [ambientLightIntensity])
+
+  useEffect(() => {
+    if (frontLightRef.current) {
+      frontLightRef.current.intensity = frontLightIntensity
+    }
+  }, [frontLightIntensity])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>

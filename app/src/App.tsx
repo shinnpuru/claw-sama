@@ -16,7 +16,7 @@ import { HistoryPanel } from './components/HistoryPanel'
 import { MoodIndicator } from './components/MoodIndicator'
 import { Menu, Pin, Move, RotateCcw, Rotate3D, EyeOff, Settings, Music, RefreshCw } from 'lucide-react'
 
-const DEFAULT_MODEL = '/model1.vrm'
+const DEFAULT_MODEL = '/shinnpuru.vrm'
 const OPENCLAW_URL = 'http://127.0.0.1:18789'
 
 // Module-level to survive any component remount
@@ -71,6 +71,8 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [hideUI, setHideUI] = useState(false)
   const [volume, setVolume] = useState(0.5)
+  const [ambientLightIntensity, setAmbientLightIntensity] = useState(1.0)
+  const [frontLightIntensity, setFrontLightIntensity] = useState(1.2)
   const [uiAlign, setUiAlign] = useState<'left' | 'right'>('right')
   const [dancing, setDancing] = useState(false)
   const [currentDance, setCurrentDance] = useState('jile')
@@ -93,6 +95,8 @@ export default function App() {
         if (s.hideUI !== undefined) setHideUI(s.hideUI)
         if (s.tracking) { setTracking(s.tracking); sceneRef.current?.setTrackingMode(s.tracking) }
         if (s.volume !== undefined) { setVolume(s.volume); LipSync.getInstance().setVolume(s.volume); sceneRef.current?.setBgmVolume(s.volume) }
+        if (s.ambientLightIntensity !== undefined) setAmbientLightIntensity(s.ambientLightIntensity)
+        if (s.frontLightIntensity !== undefined) setFrontLightIntensity(s.frontLightIntensity)
         if (s.uiAlign) setUiAlign(s.uiAlign)
         if (s.hideMood !== undefined) setHideMood(s.hideMood)
         if (s.screenObserve !== undefined) setScreenObserve(s.screenObserve)
@@ -373,7 +377,14 @@ export default function App() {
       }}
     >
       <ResizeHandles />
-      <VRMScene ref={sceneRef} modelPath={modelPath} onTouch={handleTouch} onModelLoaded={uploadVrmScreenshot} />
+      <VRMScene
+        ref={sceneRef}
+        modelPath={modelPath}
+        onTouch={handleTouch}
+        onModelLoaded={uploadVrmScreenshot}
+        ambientLightIntensity={ambientLightIntensity}
+        frontLightIntensity={frontLightIntensity}
+      />
       {!hideMood && <MoodIndicator uiAlign={uiAlign} />}
       <TextBubble onMessage={handleVrmMessageWithActivity} enabled={showText} ttsEnabled={ttsEnabled} />
       {!hideUI && <ChatInput uiAlign={uiAlign} onHistoryOpen={() => setHistoryOpen(true)} onNewSession={clearContext} language={language} />}
@@ -397,6 +408,10 @@ export default function App() {
         onTrackingChange={handleTrackingChange}
         volume={volume}
         onVolumeChange={handleVolumeChange}
+        ambientLightIntensity={ambientLightIntensity}
+        onAmbientLightIntensityChange={(v) => { setAmbientLightIntensity(v); saveSettings({ ambientLightIntensity: v }) }}
+        frontLightIntensity={frontLightIntensity}
+        onFrontLightIntensityChange={(v) => { setFrontLightIntensity(v); saveSettings({ frontLightIntensity: v }) }}
         uiAlign={uiAlign}
         onUiAlignChange={(v) => { setUiAlign(v); saveSettings({ uiAlign: v }) }}
         hideMood={hideMood}

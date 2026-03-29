@@ -27,6 +27,10 @@ interface SettingsPanelProps {
   onTrackingChange: (v: 'mouse' | 'camera') => void
   volume: number
   onVolumeChange: (v: number) => void
+  ambientLightIntensity: number
+  onAmbientLightIntensityChange: (v: number) => void
+  frontLightIntensity: number
+  onFrontLightIntensityChange: (v: number) => void
   uiAlign: 'left' | 'right'
   onUiAlignChange: (v: 'left' | 'right') => void
   hideMood: boolean
@@ -46,7 +50,7 @@ interface SettingsPanelProps {
 type Tab = 'general' | 'voice' | 'model' | 'persona' | 'dance'
 
 const OPENCLAW_URL = 'http://127.0.0.1:18789'
-const BUILTIN_MODELS = ['/model1.vrm', '/model2.vrm', '/model3.vrm', '/model4.vrm', '/model5.vrm']
+const BUILTIN_MODELS = ['/shinnpuru.vrm']
 
 const EDGE_VOICES = [
   { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女)' },
@@ -99,6 +103,8 @@ export function SettingsPanel({
   ttsEnabled, onTtsEnabledChange,
   tracking, onTrackingChange,
   volume, onVolumeChange,
+  ambientLightIntensity, onAmbientLightIntensityChange,
+  frontLightIntensity, onFrontLightIntensityChange,
   uiAlign, onUiAlignChange,
   hideMood, onHideMoodChange,
   screenObserve, onScreenObserveChange,
@@ -379,6 +385,36 @@ export function SettingsPanel({
                     style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
                   />
                   <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 28, textAlign: 'right' }}>{Math.round(volume * 100)}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 14 }}>{t('环境光', 'Ambient Light')}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={200}
+                    step={5}
+                    value={Math.round(ambientLightIntensity * 100)}
+                    onChange={(e) => onAmbientLightIntensityChange(Number(e.target.value) / 100)}
+                    style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
+                  />
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 28, textAlign: 'right' }}>{Math.round(ambientLightIntensity * 100)}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 14 }}>{t('面光源', 'Front Light')}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={300}
+                    step={5}
+                    value={Math.round(frontLightIntensity * 100)}
+                    onChange={(e) => onFrontLightIntensityChange(Number(e.target.value) / 100)}
+                    style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
+                  />
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 28, textAlign: 'right' }}>{Math.round(frontLightIntensity * 100)}</span>
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
