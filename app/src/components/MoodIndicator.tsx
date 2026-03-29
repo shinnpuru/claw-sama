@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { getOpenClawBaseUrl, onOpenClawBaseUrlChange } from '../openclaw-url'
 
 interface MoodBubble {
   id: number
@@ -8,8 +9,6 @@ interface MoodBubble {
 interface MoodIndicatorProps {
   uiAlign?: 'left' | 'right'
 }
-
-const OPENCLAW_URL = 'http://127.0.0.1:18789'
 
 const BAR_WIDTH = 10
 const BAR_HEIGHT = 120
@@ -186,6 +185,8 @@ const BAR_CANVAS_W = BAR_WIDTH + (BORDER_GAP + BORDER_WIDTH) * 2
 const BAR_CANVAS_H = BAR_HEIGHT + (BORDER_GAP + BORDER_WIDTH) * 2
 
 export function MoodIndicator({ uiAlign = 'right' }: MoodIndicatorProps) {
+  const [openclawBaseUrl, setOpenclawBaseUrl] = useState(() => getOpenClawBaseUrl())
+  const OPENCLAW_URL = openclawBaseUrl
   const [mood, setMood] = useState(60)
   const [bubbles, setBubbles] = useState<MoodBubble[]>([])
   const [visible, setVisible] = useState(false)
@@ -200,6 +201,10 @@ export function MoodIndicator({ uiAlign = 'right' }: MoodIndicatorProps) {
   const animRef = useRef<number>(0)
   const displayPercentRef = useRef(60)
   const moveDistRef = useRef(0)
+
+  useEffect(() => {
+    return onOpenClawBaseUrlChange(setOpenclawBaseUrl)
+  }, [])
 
   useEffect(() => {
     if (!userDragged) setPos(p => ({ ...p, x: defaultX(uiAlign) }))

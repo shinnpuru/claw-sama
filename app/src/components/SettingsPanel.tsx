@@ -3,6 +3,7 @@ import { X, Play, Loader, Sparkles, Trash2, Upload, Music } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { dancePresets, type DancePreset } from '../motion-controller'
+import { getOpenClawBaseUrl, onOpenClawBaseUrlChange, setOpenClawBaseUrl } from '../openclaw-url'
 
 interface DanceItem {
   id: string
@@ -49,7 +50,6 @@ interface SettingsPanelProps {
 
 type Tab = 'general' | 'voice' | 'model' | 'persona' | 'dance'
 
-const OPENCLAW_URL = 'http://127.0.0.1:18789'
 const BUILTIN_MODELS = ['/shinnpuru.vrm']
 
 const EDGE_VOICES = [
@@ -124,12 +124,15 @@ export function SettingsPanel({
   const [generating, setGenerating] = useState(false)
   const [currentVoice, setCurrentVoice] = useState('')
   const [currentProvider, setCurrentProvider] = useState<string>('edge')
+  const [openclawBaseUrl, setOpenclawBaseUrl] = useState(() => getOpenClawBaseUrl())
+  const [openclawInput, setOpenclawInput] = useState(() => getOpenClawBaseUrl())
   const [qwenKey, setQwenKey] = useState('')
   const [qwenModel, setQwenModel] = useState('qwen3-tts-flash')
   const [previewingId, setPreviewingId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [customDances, setCustomDances] = useState<DanceItem[]>([])
   const [importingDance, setImportingDance] = useState(false)
+  const OPENCLAW_URL = openclawBaseUrl
 
 
   // Drag state
@@ -160,6 +163,14 @@ export function SettingsPanel({
   useEffect(() => {
     if (visible) setPanelPos({ x: 0, y: 0 })
   }, [visible])
+
+  useEffect(() => {
+    return onOpenClawBaseUrlChange(setOpenclawBaseUrl)
+  }, [])
+
+  useEffect(() => {
+    setOpenclawInput(openclawBaseUrl)
+  }, [openclawBaseUrl])
 
   // Force disable pass-through when panel is visible
   useEffect(() => {
@@ -287,6 +298,11 @@ export function SettingsPanel({
     postVoiceSettings({ qwenModel: model }).then(() => setQwenModel(model)).catch(() => {})
   }
 
+  const saveOpenclawUrl = useCallback(() => {
+    const next = setOpenClawBaseUrl(openclawInput)
+    setOpenclawInput(next)
+  }, [openclawInput])
+
   const stopPreview = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.onended = null
@@ -369,6 +385,21 @@ export function SettingsPanel({
                       {l === 'zh' ? '中文' : 'English'}
                     </button>
                   ))}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 14 }}>{t('OpenClaw 地址', 'OpenClaw URL')}</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    value={openclawInput}
+                    onChange={(e) => setOpenclawInput(e.target.value)}
+                    onBlur={saveOpenclawUrl}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveOpenclawUrl() }}
+                    placeholder="http://127.0.0.1:18789"
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                  <button onClick={saveOpenclawUrl} style={smallBtnStyle}>{t('应用', 'Apply')}</button>
                 </div>
               </div>
               <ToggleRow label={t('显示字幕', 'Subtitles')} value={showText} onChange={onShowTextChange} />

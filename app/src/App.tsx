@@ -10,6 +10,7 @@ import { usePassThrough } from './hooks/usePassThrough'
 import { dancePresets } from './motion-controller'
 import { LipSync } from './lip-sync'
 import { bindScene } from './api'
+import { getOpenClawBaseUrl, onOpenClawBaseUrlChange } from './openclaw-url'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import { HistoryPanel } from './components/HistoryPanel'
@@ -17,7 +18,6 @@ import { MoodIndicator } from './components/MoodIndicator'
 import { Menu, Pin, Move, RotateCcw, Rotate3D, EyeOff, Settings, Music, RefreshCw } from 'lucide-react'
 
 const DEFAULT_MODEL = '/shinnpuru.vrm'
-const OPENCLAW_URL = 'http://127.0.0.1:18789'
 
 // Module-level to survive any component remount
 let lastTouchMemoTime = 0
@@ -71,7 +71,7 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [hideUI, setHideUI] = useState(false)
   const [volume, setVolume] = useState(0.5)
-  const [ambientLightIntensity, setAmbientLightIntensity] = useState(1.0)
+  const [ambientLightIntensity, setAmbientLightIntensity] = useState(1.3)
   const [frontLightIntensity, setFrontLightIntensity] = useState(1.2)
   const [uiAlign, setUiAlign] = useState<'left' | 'right'>('right')
   const [dancing, setDancing] = useState(false)
@@ -81,8 +81,14 @@ export default function App() {
   const [screenObserve, setScreenObserve] = useState(false)
   const [screenObserveInterval, setScreenObserveInterval] = useState(60)
   const [language, setLanguage] = useState<'zh' | 'en'>(() => navigator.language.startsWith('zh') ? 'zh' : 'en')
+  const [openclawBaseUrl, setOpenclawBaseUrl] = useState(() => getOpenClawBaseUrl())
   const t = (zh: string, en: string) => language === 'en' ? en : zh
+  const OPENCLAW_URL = openclawBaseUrl
   usePassThrough(!settingsOpen && !historyOpen)
+
+  useEffect(() => {
+    return onOpenClawBaseUrlChange(setOpenclawBaseUrl)
+  }, [])
 
   // Load persisted settings on mount
   useEffect(() => {

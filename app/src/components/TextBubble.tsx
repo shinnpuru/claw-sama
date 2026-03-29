@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { LipSync } from '../lip-sync'
+import { buildOpenClawUrl, getOpenClawBaseUrl, onOpenClawBaseUrlChange } from '../openclaw-url'
 
 interface VrmMessage {
   text?: string
@@ -43,6 +44,7 @@ const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 // Keyframes (claw-pop-in) are in index.html <style>
 
 export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { onMessage?: OnVrmMessage; enabled?: boolean; ttsEnabled?: boolean }) {
+  const [openclawBaseUrl, setOpenclawBaseUrl] = useState(() => getOpenClawBaseUrl())
   const [text, setText] = useState('')
   const [visible, setVisible] = useState(false)
   const [charCount, setCharCount] = useState(0)
@@ -81,6 +83,10 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
   const replyDoneRef = useRef(true)
   // replyDone arrived while sendFirstTts was still queued — apply after draining queue
   const pendingReplyDoneRef = useRef(false)
+
+  useEffect(() => {
+    return onOpenClawBaseUrlChange(setOpenclawBaseUrl)
+  }, [])
 
   // Auto-scroll to bottom on char reveal
   useEffect(() => {
@@ -380,7 +386,7 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
   handleMessageRef.current = handleMessage
 
   useEffect(() => {
-    const es = new EventSource('http://127.0.0.1:18789/plugins/claw-sama/events')
+    const es = new EventSource(buildOpenClawUrl('/plugins/claw-sama/events', openclawBaseUrl))
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)
@@ -422,7 +428,7 @@ export function TextBubble({ onMessage, enabled = true, ttsEnabled = true }: { o
       if (timerRef.current) clearTimeout(timerRef.current)
       if (typewriterRef.current) clearInterval(typewriterRef.current)
     }
-  }, [handleMessage])
+  }, [handleMessage, openclawBaseUrl])
 
   const showBubble = enabled && visible && (!!text || !!imageUrl)
 

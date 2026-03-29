@@ -2,8 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { MessageCircle, Send, Loader, Mic, ChevronDown, History, SquarePen, Plus, Phone, PhoneOff } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-
-const OPENCLAW_URL = 'http://127.0.0.1:18789/plugins/claw-sama/chat'
+import { buildOpenClawUrl, getOpenClawBaseUrl, onOpenClawBaseUrlChange } from '../openclaw-url'
 
 // Keyframes (claw-input-slide-up, claw-input-slide-down, claw-pulse) are in index.html <style>
 
@@ -12,6 +11,8 @@ const USE_NATIVE_STT = !SpeechRecognition
 
 export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', onHistoryOpen, onNewSession, language = 'zh' }: { visible?: boolean; onActiveChange?: (hasText: boolean) => void; uiAlign?: 'left' | 'right'; onHistoryOpen?: () => void; onNewSession?: () => void; language?: 'zh' | 'en' }) {
   const t = (zh: string, en: string) => language === 'en' ? en : zh
+  const [openclawBaseUrl, setOpenclawBaseUrl] = useState(() => getOpenClawBaseUrl())
+  const OPENCLAW_URL = buildOpenClawUrl('/plugins/claw-sama/chat', openclawBaseUrl)
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -25,6 +26,10 @@ export function ChatInput({ visible = true, onActiveChange, uiAlign = 'right', o
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSentIndexRef = useRef(0)
   const voiceCallActiveRef = useRef(false)
+
+  useEffect(() => {
+    return onOpenClawBaseUrlChange(setOpenclawBaseUrl)
+  }, [])
 
   const closeBar = useCallback(() => {
     if (closing) return

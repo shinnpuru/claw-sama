@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-
-const OPENCLAW_URL = 'http://127.0.0.1:18789'
+import { getOpenClawBaseUrl, onOpenClawBaseUrlChange } from '../openclaw-url'
 
 interface HistoryMessage {
   role: string
@@ -18,6 +17,8 @@ interface HistoryPanelProps {
 
 export function HistoryPanel({ visible, onClose, language = 'zh' }: HistoryPanelProps) {
   const t = (zh: string, en: string) => language === 'en' ? en : zh
+  const [openclawBaseUrl, setOpenclawBaseUrl] = useState(() => getOpenClawBaseUrl())
+  const OPENCLAW_URL = openclawBaseUrl
   const [messages, setMessages] = useState<HistoryMessage[]>([])
   const [agentName, setAgentName] = useState('')
   const [loading, setLoading] = useState(false)
@@ -28,6 +29,10 @@ export function HistoryPanel({ visible, onClose, language = 'zh' }: HistoryPanel
   const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; origX: number; origY: number }>({
     dragging: false, startX: 0, startY: 0, origX: 0, origY: 0,
   })
+
+  useEffect(() => {
+    return onOpenClawBaseUrlChange(setOpenclawBaseUrl)
+  }, [])
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, origX: panelPos.x, origY: panelPos.y }
