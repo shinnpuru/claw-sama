@@ -35,7 +35,7 @@ export const EXT_DIR = path.resolve(_srcDir, "..");
 
 // Workspace roots
 const profile = process.env.OPENCLAW_PROFILE?.trim();
-const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+const homeDir = process.env.OPENCLAW_HOME || process.env.USERPROFILE || "";
 export const openclawWorkspaceRoot = (profile && profile.toLowerCase() !== "default")
   ? path.join(homeDir, ".openclaw", `workspace-${profile}`)
   : path.join(homeDir, ".openclaw", "workspace");

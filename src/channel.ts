@@ -1521,10 +1521,10 @@ export function createClawSamaPlugin() {
             };
           }
           let resultText = `Screenshot saved. Use the read tool to view: ${observePath}`;
-          const kb = loadScreenKb();
-          if (kb) {
-            resultText += `\n\nKnowledge base — the user may be running one of these programs, use this to help identify what's on screen:\n${kb}`;
-          }
+          // const kb = loadScreenKb();
+          // if (kb) {
+          //   resultText += `\n\nKnowledge base — the user may be running one of these programs, use this to help identify what's on screen:\n${kb}`;
+          // }
           return {
             content: [{ type: "text" as const, text: resultText }],
           };
