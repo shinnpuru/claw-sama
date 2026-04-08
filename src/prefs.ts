@@ -11,6 +11,11 @@ export interface ClawSamaPrefs {
   qwenKey?: string;
   qwenModel?: string;
   modelPath?: string;
+  modelPosition?: {
+    x: number;
+    y: number;
+    z: number;
+  };
   ttsEnabled?: boolean;
   showText?: boolean;
   hideUI?: boolean;

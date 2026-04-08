@@ -747,6 +747,7 @@ export function createClawSamaPlugin() {
           if (req.method === "GET") {
             jsonResponse(res, 200, {
               modelPath: prefs.modelPath,
+              modelPosition: prefs.modelPosition,
               ttsEnabled: prefs.ttsEnabled,
               showText: prefs.showText,
               hideUI: prefs.hideUI,
@@ -767,6 +768,7 @@ export function createClawSamaPlugin() {
             const body = await readJsonBody(req);
             const patch: Partial<ClawSamaPrefs> = {};
             if (body.modelPath !== undefined) patch.modelPath = body.modelPath;
+            if (body.modelPosition !== undefined) patch.modelPosition = body.modelPosition;
             if (body.ttsEnabled !== undefined) patch.ttsEnabled = body.ttsEnabled;
             if (body.showText !== undefined) patch.showText = body.showText;
             if (body.hideUI !== undefined) patch.hideUI = body.hideUI;

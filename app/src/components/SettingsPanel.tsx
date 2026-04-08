@@ -32,6 +32,8 @@ interface SettingsPanelProps {
   onAmbientLightIntensityChange: (v: number) => void
   frontLightIntensity: number
   onFrontLightIntensityChange: (v: number) => void
+  modelInitialPosition: { x: number; y: number; z: number }
+  onModelInitialPositionChange: (v: { x: number; y: number; z: number }) => void
   uiAlign: 'left' | 'right'
   onUiAlignChange: (v: 'left' | 'right') => void
   hideMood: boolean
@@ -105,6 +107,7 @@ export function SettingsPanel({
   volume, onVolumeChange,
   ambientLightIntensity, onAmbientLightIntensityChange,
   frontLightIntensity, onFrontLightIntensityChange,
+  modelInitialPosition, onModelInitialPositionChange,
   uiAlign, onUiAlignChange,
   hideMood, onHideMoodChange,
   screenObserve, onScreenObserveChange,
@@ -419,36 +422,6 @@ export function SettingsPanel({
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 14 }}>{t('环境光', 'Ambient Light')}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="range"
-                    min={0}
-                    max={200}
-                    step={5}
-                    value={Math.round(ambientLightIntensity * 100)}
-                    onChange={(e) => onAmbientLightIntensityChange(Number(e.target.value) / 100)}
-                    style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
-                  />
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 28, textAlign: 'right' }}>{Math.round(ambientLightIntensity * 100)}</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 14 }}>{t('面光源', 'Front Light')}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="range"
-                    min={0}
-                    max={300}
-                    step={5}
-                    value={Math.round(frontLightIntensity * 100)}
-                    onChange={(e) => onFrontLightIntensityChange(Number(e.target.value) / 100)}
-                    style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
-                  />
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 28, textAlign: 'right' }}>{Math.round(frontLightIntensity * 100)}</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 14 }}>{t('视线跟随', 'Eye Tracking')}</span>
                 <div style={{ display: 'flex', gap: 4 }}>
                   {(['mouse', 'camera'] as const).map((m) => (
@@ -642,6 +615,74 @@ export function SettingsPanel({
                   </select>
                 </div>
               )}
+
+              <div style={{ marginTop: 12 }}>
+                <div style={labelStyle}>{t('光照设置', 'Lighting')}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 14 }}>{t('环境光', 'Ambient Light')}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="range"
+                        min={0}
+                        max={200}
+                        step={5}
+                        value={Math.round(ambientLightIntensity * 100)}
+                        onChange={(e) => onAmbientLightIntensityChange(Number(e.target.value) / 100)}
+                        style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
+                      />
+                      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 28, textAlign: 'right' }}>{Math.round(ambientLightIntensity * 100)}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 14 }}>{t('面光源', 'Front Light')}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="range"
+                        min={0}
+                        max={300}
+                        step={5}
+                        value={Math.round(frontLightIntensity * 100)}
+                        onChange={(e) => onFrontLightIntensityChange(Number(e.target.value) / 100)}
+                        style={{ width: 100, accentColor: 'rgba(100, 160, 255, 0.8)' }}
+                      />
+                      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', width: 28, textAlign: 'right' }}>{Math.round(frontLightIntensity * 100)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <div style={labelStyle}>{t('模型当前位置', 'Model Position')}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(['x', 'y', 'z'] as const).map((axis) => (
+                    <div key={axis} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 16, fontSize: 12, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase' }}>{axis}</span>
+                      <input
+                        type="range"
+                        min={-3}
+                        max={3}
+                        step={0.01}
+                        value={modelInitialPosition[axis]}
+                        onChange={(e) => {
+                          const next = Number(e.target.value)
+                          onModelInitialPositionChange({
+                            ...modelInitialPosition,
+                            [axis]: Number.isFinite(next) ? next : 0,
+                          })
+                        }}
+                        style={{ flex: 1, accentColor: 'rgba(100, 160, 255, 0.8)' }}
+                      />
+                      <span style={{ width: 48, fontSize: 12, color: 'rgba(255,255,255,0.55)', textAlign: 'right' }}>
+                        {modelInitialPosition[axis].toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>
+                  {t('单位为米，建议范围 -3.00 到 3.00', 'Unit: meters, recommended range -3.00 to 3.00')}
+                </div>
+              </div>
 
               <div style={{ marginTop: 12 }}>
                 <div style={labelStyle}>{t('导入自定义模型', 'Import Custom Model')}</div>

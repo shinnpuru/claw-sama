@@ -73,6 +73,7 @@ export default function App() {
   const [volume, setVolume] = useState(0.5)
   const [ambientLightIntensity, setAmbientLightIntensity] = useState(1.3)
   const [frontLightIntensity, setFrontLightIntensity] = useState(1.2)
+  const [modelInitialPosition, setModelInitialPosition] = useState({ x: 0, y: 0, z: 0 })
   const [uiAlign, setUiAlign] = useState<'left' | 'right'>('right')
   const [dancing, setDancing] = useState(false)
   const [currentDance, setCurrentDance] = useState('jile')
@@ -103,6 +104,14 @@ export default function App() {
         if (s.volume !== undefined) { setVolume(s.volume); LipSync.getInstance().setVolume(s.volume); sceneRef.current?.setBgmVolume(s.volume) }
         if (s.ambientLightIntensity !== undefined) setAmbientLightIntensity(s.ambientLightIntensity)
         if (s.frontLightIntensity !== undefined) setFrontLightIntensity(s.frontLightIntensity)
+        if (s.modelPosition || s.modelInitialPosition) {
+          const p = s.modelPosition || s.modelInitialPosition
+          setModelInitialPosition({
+            x: Number(p.x) || 0,
+            y: Number(p.y) || 0,
+            z: Number(p.z) || 0,
+          })
+        }
         if (s.uiAlign) setUiAlign(s.uiAlign)
         if (s.hideMood !== undefined) setHideMood(s.hideMood)
         if (s.screenObserve !== undefined) setScreenObserve(s.screenObserve)
@@ -390,6 +399,7 @@ export default function App() {
         onModelLoaded={uploadVrmScreenshot}
         ambientLightIntensity={ambientLightIntensity}
         frontLightIntensity={frontLightIntensity}
+        modelInitialPosition={modelInitialPosition}
       />
       {!hideMood && <MoodIndicator uiAlign={uiAlign} />}
       <TextBubble onMessage={handleVrmMessageWithActivity} enabled={showText} ttsEnabled={ttsEnabled} />
@@ -418,6 +428,8 @@ export default function App() {
         onAmbientLightIntensityChange={(v) => { setAmbientLightIntensity(v); saveSettings({ ambientLightIntensity: v }) }}
         frontLightIntensity={frontLightIntensity}
         onFrontLightIntensityChange={(v) => { setFrontLightIntensity(v); saveSettings({ frontLightIntensity: v }) }}
+        modelInitialPosition={modelInitialPosition}
+        onModelInitialPositionChange={(v) => { setModelInitialPosition(v); saveSettings({ modelPosition: v }) }}
         uiAlign={uiAlign}
         onUiAlignChange={(v) => { setUiAlign(v); saveSettings({ uiAlign: v }) }}
         hideMood={hideMood}

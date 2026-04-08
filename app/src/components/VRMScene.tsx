@@ -18,6 +18,7 @@ interface VRMSceneProps {
   onModelLoaded?: () => void
   ambientLightIntensity?: number
   frontLightIntensity?: number
+  modelInitialPosition?: { x: number; y: number; z: number }
 }
 
 export type TrackingMode = 'mouse' | 'camera'
@@ -165,6 +166,7 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   onModelLoaded,
   ambientLightIntensity = 0.6,
   frontLightIntensity = 1.2,
+  modelInitialPosition = { x: 0, y: 0, z: 0 },
 }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number; confirmed: boolean }[]>([])
@@ -189,6 +191,7 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
   onModelLoadedRef.current = onModelLoaded
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null)
   const frontLightRef = useRef<THREE.DirectionalLight | null>(null)
+  const vrmRootRef = useRef<THREE.Object3D | null>(null)
 
   useImperativeHandle(ref, () => ({
     setEmotion(emotion: string, intensity?: number) {
@@ -327,9 +330,15 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
 
         // Normalize VRM 0.x to match 1.0 convention, then face camera
         VRMUtils.rotateVRM0(loadedVrm)
+        loadedVrm.scene.position.set(
+          modelInitialPosition.x,
+          modelInitialPosition.y,
+          modelInitialPosition.z,
+        )
 
         scene.add(loadedVrm.scene)
         vrm = loadedVrm
+        vrmRootRef.current = loadedVrm.scene
 
         // ── Compute camera from model bounds (airi style) ───────────────────
         const box = new THREE.Box3().setFromObject(loadedVrm.scene)
@@ -789,6 +798,7 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
       emoteRef.current = null
       motion?.dispose()
       motionRef.current = null
+      vrmRootRef.current = null
       ambientLightRef.current = null
       frontLightRef.current = null
       hitTarget.dispose()
@@ -808,6 +818,16 @@ export const VRMScene = forwardRef<VRMSceneHandle, VRMSceneProps>(function VRMSc
       frontLightRef.current.intensity = frontLightIntensity
     }
   }, [frontLightIntensity])
+
+  useEffect(() => {
+    if (vrmRootRef.current) {
+      vrmRootRef.current.position.set(
+        modelInitialPosition.x,
+        modelInitialPosition.y,
+        modelInitialPosition.z,
+      )
+    }
+  }, [modelInitialPosition])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
