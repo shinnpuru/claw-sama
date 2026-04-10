@@ -1,6 +1,12 @@
 name: Build & Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to publish (e.g. v1.2.3)"
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -10,7 +16,6 @@ env:
 
 permissions:
   contents: write
-
 jobs:
   build:
     strategy:
@@ -57,56 +62,55 @@ jobs:
           name: claw-sama-windows
           path: |
             app/src-tauri/target/x86_64-pc-windows-msvc/release/claw-sama.exe
+            app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
 
-      - name: Upload .app bundle for npm (macOS)
+      - name: Upload artifacts (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        uses: actions/upload-artifact@v6
+        with:
+          name: claw-sama-macos-${{ matrix.target }}
+          path: app/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+
+      - name: Zip .app bundle (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          cd app/src-tauri/target/${{ matrix.target }}/release/bundle/macos
+          ditto -c -k --sequesterRsrc --keepParent "Claw Sama.app" "Claw Sama-${{ matrix.target }}.zip"
+
+      - name: Upload .app bundle (macOS)
         if: startsWith(matrix.platform, 'macos')
         uses: actions/upload-artifact@v6
         with:
           name: claw-sama-app-${{ matrix.target }}
-          path: app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Claw Sama.app
+          path: app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.zip
 
   release:
-    needs: build
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
+    needs: build
 
+    steps:
       - uses: actions/download-artifact@v7
         with:
           name: claw-sama-windows
-          path: artifacts/raw/windows
+          path: artifacts
       - uses: actions/download-artifact@v7
         with:
-          name: claw-sama-app-aarch64-apple-darwin
-          path: artifacts/raw/macos-app-arm64
+          name: claw-sama-macos-aarch64-apple-darwin
+          path: artifacts
       - uses: actions/download-artifact@v7
         with:
-          name: claw-sama-app-x86_64-apple-darwin
-          path: artifacts/raw/macos-app-x64
+          name: claw-sama-macos-x86_64-apple-darwin
+          path: artifacts
 
-      - name: Repackage artifacts for release
-        run: |
-          mkdir -p artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64
-          mkdir -p artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64
-          mkdir -p artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64
-
-          cp -R artifacts/raw/windows/. artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64/
-          cp -R artifacts/raw/macos-app-arm64/. artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64/
-          cp -R artifacts/raw/macos-app-x64/. artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64/
-
-          cp -R src artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64/
-          cp -R src artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64/
-          cp -R src artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64/
-
-          cp index.ts openclaw.plugin.json package.json LICENSE README.md artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64/
-          cp index.ts openclaw.plugin.json package.json LICENSE README.md artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64/
-          cp index.ts openclaw.plugin.json package.json LICENSE README.md artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64/
-
-      - name: List artifacts
-        run: find artifacts -type f 2>/dev/null || ls -R artifacts
-
-      - name: Create Release
+      - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/node_modules/**
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          files: artifacts/**
           generate_release_notes: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
