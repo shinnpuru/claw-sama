@@ -57,15 +57,6 @@ jobs:
           name: claw-sama-windows
           path: |
             app/src-tauri/target/x86_64-pc-windows-msvc/release/claw-sama.exe
-            app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
-            app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-
-      - name: Upload artifacts (macOS)
-        if: startsWith(matrix.platform, 'macos')
-        uses: actions/upload-artifact@v6
-        with:
-          name: claw-sama-macos-${{ matrix.target }}
-          path: app/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
 
       - name: Upload .app bundle for npm (macOS)
         if: startsWith(matrix.platform, 'macos')
@@ -78,18 +69,38 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v7
         with:
           name: claw-sama-windows
-          path: artifacts
+          path: artifacts/raw/windows
       - uses: actions/download-artifact@v7
         with:
-          name: claw-sama-macos-aarch64-apple-darwin
-          path: artifacts
+          name: claw-sama-app-aarch64-apple-darwin
+          path: artifacts/raw/macos-app-arm64
       - uses: actions/download-artifact@v7
         with:
-          name: claw-sama-macos-x86_64-apple-darwin
-          path: artifacts
+          name: claw-sama-app-x86_64-apple-darwin
+          path: artifacts/raw/macos-app-x64
+
+      - name: Repackage artifacts for release
+        run: |
+          mkdir -p artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64
+          mkdir -p artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64
+          mkdir -p artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64
+
+          cp -R artifacts/raw/windows/. artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64/
+          cp -R artifacts/raw/macos-app-arm64/. artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64/
+          cp -R artifacts/raw/macos-app-x64/. artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64/
+
+          cp -R src artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64/
+          cp -R src artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64/
+          cp -R src artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64/
+
+          cp index.ts openclaw.plugin.json package.json LICENSE README.md artifacts/node_modules/@luckybugqqq/claw-sama-win32-x64/
+          cp index.ts openclaw.plugin.json package.json LICENSE README.md artifacts/node_modules/@luckybugqqq/claw-sama-darwin-arm64/
+          cp index.ts openclaw.plugin.json package.json LICENSE README.md artifacts/node_modules/@luckybugqqq/claw-sama-darwin-x64/
 
       - name: List artifacts
         run: find artifacts -type f 2>/dev/null || ls -R artifacts
@@ -97,93 +108,5 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**
+          files: artifacts/node_modules/**
           generate_release_notes: true
-
-  publish-npm-platforms:
-    needs: build
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - artifact: claw-sama-windows
-            npm_dir: npm/win32-x64
-            binary_name: claw-sama.exe
-            is_app_bundle: false
-          - artifact: claw-sama-app-aarch64-apple-darwin
-            npm_dir: npm/darwin-arm64
-            binary_name: "Claw Sama.app"
-            is_app_bundle: true
-          - artifact: claw-sama-app-x86_64-apple-darwin
-            npm_dir: npm/darwin-x64
-            binary_name: "Claw Sama.app"
-            is_app_bundle: true
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-
-      - name: Download build artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: ${{ matrix.artifact }}
-          path: artifacts
-
-      - name: Sync version from root package.json
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          cd ${{ matrix.npm_dir }}
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            p.version = '$VERSION';
-            fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
-          "
-          echo "Set version to $VERSION"
-
-      - name: Place binary/bundle into sub-package
-        run: |
-          echo "=== artifacts contents ==="
-          find artifacts -type f
-          if [ "${{ matrix.is_app_bundle }}" = "true" ]; then
-            mv artifacts "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
-            chmod -R +x "${{ matrix.npm_dir }}/${{ matrix.binary_name }}/Contents/MacOS"
-            ls -la "${{ matrix.npm_dir }}/"
-          else
-            bin=$(find artifacts -name '${{ matrix.binary_name }}' -type f | head -1)
-            if [ -z "$bin" ]; then
-              echo "ERROR: ${{ matrix.binary_name }} not found in artifacts"
-              exit 1
-            fi
-            cp "$bin" "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
-            chmod +x "${{ matrix.npm_dir }}/${{ matrix.binary_name }}"
-            ls -la "${{ matrix.npm_dir }}/"
-          fi
-
-      - name: Publish platform package
-        working-directory: ${{ matrix.npm_dir }}
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  publish-npm:
-    needs: publish-npm-platforms
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-
-      - name: Publish main package
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
