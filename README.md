@@ -8,27 +8,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/luckybugqqq/claw-sama/releases">
-    <img src="https://img.shields.io/github/v/release/luckybugqqq/claw-sama?style=flat-square" alt="Release" />
+  <a href="https://github.com/shinnpruru/claw-sama/releases">
+    <img src="https://img.shields.io/github/v/release/shinnpruru/claw-sama?style=flat-square" alt="Release" />
   </a>
-  <a href="https://www.npmjs.com/package/@luckybugqqq/claw-sama">
-    <img src="https://img.shields.io/npm/v/@luckybugqqq/claw-sama?style=flat-square" alt="npm" />
+  <a href="https://github.com/shinnpruru/claw-sama/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/shinnpruru/claw-sama?style=flat-square" alt="License" />
   </a>
-  <a href="https://github.com/luckybugqqq/claw-sama/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/luckybugqqq/claw-sama?style=flat-square" alt="License" />
-  </a>
-</p>
-
----
-
-<p align="center">
-  <a href="https://www.bilibili.com/video/BV1bEw6zJEuU">
-    <img src="img/display.gif" alt="Watch on Bilibili" width="80%" />
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://www.bilibili.com/video/BV1bEw6zJEuU">▶ 在 B 站观看演示视频</a>
 </p>
 
 ---
@@ -46,12 +31,12 @@ Claw Sama 是一个以 3D VRM 形象常驻桌面的 AI 伙伴，基于 [OpenClaw
 - Lip-sync perfectly matched to voice output
 - Idle animations & random fidgets — she's alive even when you're not talking
 - Eyes follow your mouse cursor or camera
-- 5 built-in VRM models + import your own custom models
+- Built-in VRM model + import your own custom models
 - 3D VRM 模型，实时面部表情切换
 - 口型与语音完美同步
 - 待机动画和随机小动作——不说话的时候她也是活的
 - 视线跟踪鼠标或摄像头
-- 5 款内置 VRM 模型 + 支持导入自定义模型
+- 内置 VRM 模型 + 支持导入自定义模型
 
 ### 🧠 AI Conversation & Voice / AI 对话与语音
 - Chat via text or voice, she replies with voice — not just text
@@ -119,31 +104,7 @@ Claw Sama 是一个以 3D VRM 形象常驻桌面的 AI 伙伴，基于 [OpenClaw
 
 ### As OpenClaw Plugin (recommended) / 作为 OpenClaw 插件安装（推荐）
 
-```bash
-openclaw plugins install @luckybugqqq/claw-sama
-```
-
-The npm package includes pre-built binaries for Windows (.exe) and macOS (.app). OpenClaw loads the plugin and launches the desktop pet automatically.
-
-npm 包内含 Windows (.exe) 和 macOS (.app) 预编译文件。OpenClaw 加载插件后自动启动桌面宠物。
-
-### Update / 更新插件
-
-```bash
-npm cache clean --force
-openclaw plugins update @luckybugqqq/claw-sama
-```
-
-### Build from Source / 从源码构建
-
-```bash
-git clone https://github.com/luckybugqqq/claw-sama.git
-cd claw-sama/app
-npm install
-npx tauri build
-```
-
-> Requires Node.js 20+ and Rust toolchain. / 需要 Node.js 20+ 和 Rust 工具链。
+Download package from [releases](https://github.com/shinnpuru/claw-sama/releases) and place it in OpenClaw's plugin folder (`.openclaw/extensions`). / 从 [releases](https://github.com/shinnpuru/claw-sama) 下载插件包并放入 OpenClaw 的插件目录。(`.openclaw/extensions`)
 
 ## Settings / 设置
 
@@ -182,6 +143,20 @@ claw-sama/
 - **Backend / 后端**: OpenClaw plugin SDK (Node.js)
 - **AI**: LLM via OpenClaw runtime (supports multiple providers / 支持多种模型)
 - **TTS / 语音合成**: Edge TTS / Qwen TTS
+
+<details>
+<summary><strong>Build from Source / 从源码构建</strong></summary>
+
+Requires Node.js 20+ and Rust toolchain. / 需要 Node.js 20+ 和 Rust 工具链。
+
+```bash
+git clone https://github.com/shinnpuru/claw-sama.git
+cd claw-sama/app
+npm install
+npx tauri build
+```
+
+</details>
 
 ## Acknowledgments / 致谢
 
